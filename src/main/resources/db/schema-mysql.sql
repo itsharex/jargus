@@ -69,8 +69,7 @@ CREATE TABLE IF NOT EXISTS ai_provider_config (
     is_enabled TINYINT(1) DEFAULT 1 COMMENT '是否启用',
     sort_order INT DEFAULT 0 COMMENT '排序',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_active (is_active)
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI厂商配置';
 
 -- ============================================================
@@ -278,7 +277,66 @@ CREATE TABLE IF NOT EXISTS ci_token (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='CI令牌';
 
 -- ============================================================
--- 表 13: gate_setting (质量门禁自定义配置，单行 id=1；无行=用 application.yml 默认值)
+-- 表 13: sys_user (系统用户)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS sys_user (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    username VARCHAR(64) NOT NULL COMMENT '用户名',
+    password_hash VARCHAR(256) NOT NULL COMMENT '密码哈希（BCrypt）',
+    nickname VARCHAR(128) COMMENT '昵称',
+    role VARCHAR(32) NOT NULL DEFAULT 'VIEWER' COMMENT '角色',
+    source VARCHAR(32) NOT NULL DEFAULT 'LOCAL' COMMENT '来源 LOCAL/远端登录',
+    is_enabled TINYINT(1) DEFAULT 1 COMMENT '是否启用',
+    is_password_default TINYINT(1) DEFAULT 1 COMMENT '是否仍为默认密码',
+    last_login_at DATETIME COMMENT '最后登录时间',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_sys_user_username (username)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='系统用户';
+
+-- 默认用户由应用首次启动时创建（BCrypt 加密）：
+--   admin / 123456  （管理员，ADMIN）
+--   view  / 123456  （只读用户，VIEWER）
+-- 见 AuthService.initDefaultUsers()
+
+-- ============================================================
+-- 表 14: remote_auth_config (远端登录配置)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS remote_auth_config (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    config_name VARCHAR(128) NOT NULL COMMENT '配置名称',
+    auth_type VARCHAR(32) NOT NULL DEFAULT 'OAUTH2' COMMENT '认证类型',
+    login_url VARCHAR(512) COMMENT '登录地址',
+    user_info_url VARCHAR(512) COMMENT '用户信息地址',
+    token_url VARCHAR(512) COMMENT 'Token 地址',
+    client_id VARCHAR(256) COMMENT '客户端 ID',
+    client_secret VARCHAR(512) COMMENT '客户端密钥（AES 加密存储）',
+    username_field VARCHAR(64) COMMENT '用户名字段',
+    nickname_field VARCHAR(128) COMMENT '昵称字段',
+    role_field VARCHAR(64) COMMENT '角色字段',
+    role_mapping TEXT COMMENT '角色映射 JSON',
+    is_enabled TINYINT(1) DEFAULT 0 COMMENT '是否启用',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='远端登录配置';
+
+-- ============================================================
+-- 表 15: sys_oper_log (操作日志)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS sys_oper_log (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    username VARCHAR(64) COMMENT '操作人',
+    operation VARCHAR(128) COMMENT '操作描述',
+    method VARCHAR(16) COMMENT 'HTTP 方法',
+    params TEXT COMMENT '请求参数 JSON',
+    ip VARCHAR(64) COMMENT '来源 IP',
+    status VARCHAR(16) COMMENT '状态',
+    error_msg VARCHAR(512) COMMENT '错误信息',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='操作日志';
+
+-- ============================================================
+-- 表 16: gate_setting (质量门禁自定义配置，单行 id=1；无行=用 application.yml 默认值)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS gate_setting (
     id BIGINT PRIMARY KEY COMMENT '固定为 1',
@@ -324,6 +382,15 @@ CREATE TABLE IF NOT EXISTS mail_recipient (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uk_mail_recipient_email (email)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='通知收件人';
+
+-- ============================================================
+-- 初始化数据
+-- ============================================================
+
+-- 插入 schema 版本（与 schema-h2.sql 保持一致）
+INSERT INTO schema_version (version, description) VALUES ('1.0.0', '初始版本');
+
+-- 注意：database_config 种子行由切换流程写入，脚本不预置（避免出现双 active）
 
 -- ============================================================
 -- 内置 LLM 模板种子数据（与 schema-h2.sql 保持一致，仅 OpenAI 兼容 / Anthropic 两种协议）

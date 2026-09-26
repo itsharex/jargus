@@ -7,7 +7,7 @@ import lombok.extern.slf4j.Slf4j;
  * 枚举值与 database_config.db_type 一一对应，每个值归属一个方言家族（{@link Family}）。
  * 分页方言、DDL 脚本、行限制语法等运行时行为按家族选择：
  * MariaDB/TiDB/OceanBase/GBase 8a 走 MySQL 协议；openGauss/KingBase/HighGo/Vastbase 为 PG 系；
- * DM/YashanDB 为 Oracle 系；GBase 8s/Oscar/自定义暂无内置 DDL（仅连接支持）。
+ * DM/YashanDB 为 Oracle 系；DB2/GBase 8s/Oscar/自定义暂无内置 DDL（仅连接支持）。
  */
 @Slf4j
 public enum SqlDialectAdapter {
@@ -30,7 +30,7 @@ public enum SqlDialectAdapter {
     YASHANDB(Family.ORACLE),       // 崖山
     // ---- 其他家族 ----
     SQLSERVER(Family.SQLSERVER),
-    DB2(Family.DB2),
+    DB2(Family.DB2),               // 保留 DB2 家族用于分页方言；无内置 DDL（见 getDdlScriptPath 注释）
     H2(Family.H2),
     // ---- 无内置 DDL（连接测试可用，自动建表需用户手工执行 DDL） ----
     GBASE8S(Family.CUSTOM),        // 南大通用 GBase 8s（Informix 系）
@@ -70,7 +70,10 @@ public enum SqlDialectAdapter {
             case POSTGRESQL -> "db/schema-postgresql.sql";
             case ORACLE -> "db/schema-oracle.sql";
             case SQLSERVER -> "db/schema-sqlserver.sql";
-            case DB2 -> "db/schema-db2.sql";
+            // DB2 LUW 保留字审计不通过：password/source/role/method 等实体列名均为保留字，
+            // MyBatis-Plus 生成的非定界 DML 必然解析失败，无法作为运行库 → 降级为仅连接测试。
+            // Family.DB2 仍保留，供分页方言（提交 3）使用。
+            case DB2 -> null;
             case H2 -> "db/schema-h2.sql";
             case CUSTOM -> null;
         };

@@ -258,7 +258,8 @@ public class DatabaseConfigService {
                 .withParamsHint("encrypt=false;trustServerCertificate=true"));
         types.add(createDbType("DB2", "DB2", "com.ibm.db2.jcc.DB2Driver", false,
                 "50000", "jdbc:db2://", ":")
-                .withTemplate("jdbc:db2://{host}:{port}/{database}:{params}"));
+                .withTemplate("jdbc:db2://{host}:{port}/{database}:{params}")
+                .withNoRuntime());
         types.add(createDbType("GBase 8s", "GBASE8S", "com.gbasedbt.jdbc.Driver", false,
                 "9088", "jdbc:gbasedbt-sqli://", ":")
                 .withTemplate("jdbc:gbasedbt-sqli://{host}:{port}/{database}:{params}")
@@ -304,6 +305,12 @@ public class DatabaseConfigService {
         /** 该类型必须提供驱动 JAR（驱动未随应用打包） */
         DbTypeBuilder withJarRequired() {
             put("jarRequired", "true");
+            return this;
+        }
+
+        /** 该类型仅支持连接测试，不能作为运行库（DB2：password/source/role/method 等列名与保留字冲突） */
+        DbTypeBuilder withNoRuntime() {
+            put("noRuntime", "true");
             return this;
         }
 

@@ -41,8 +41,8 @@ public class AppStartupListener {
         log.info("应用启动完成，开始检查数据库初始化状态...");
 
         try {
-            // 检查默认数据源中是否已有表结构
-            boolean schemaExists = schemaInitService.checkSchemaExists(dataSource);
+            // 检查默认数据源中是否已有表结构（当前启动库固定为内置 H2；提交 3 引入方言持有者后按活库方言探测）
+            boolean schemaExists = schemaInitService.checkSchemaExists(dataSource, SqlDialectAdapter.H2);
 
             if (!schemaExists) {
                 log.info("检测到数据库为空，开始初始化表结构...");
@@ -53,7 +53,7 @@ public class AppStartupListener {
                     log.error("数据库表结构初始化失败");
                 }
             } else {
-                String version = schemaInitService.getSchemaVersion(dataSource);
+                String version = schemaInitService.getSchemaVersion(dataSource, SqlDialectAdapter.H2);
                 log.info("数据库表结构已存在，版本: {}", version);
             }
 

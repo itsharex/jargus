@@ -48,6 +48,9 @@ public class DatabaseSwitchService {
             return result;
         }
 
+        // dialect 存量值安全解析，未知回退 dbType 推断（探测与建表共用）
+        SqlDialectAdapter dialect = SqlDialectAdapter.resolve(target.getDialect(), target.getDbType());
+
         try {
             // 只要配置了驱动 JAR 且文件存在就先加载（自定义库、或驱动未内置的类型如神通 Oscar）
             loadDriverJarIfNeeded(target);
@@ -65,10 +68,9 @@ public class DatabaseSwitchService {
             );
 
             // 检查表结构
-            boolean schemaExists = schemaInitService.checkSchemaExists(tempDs);
+            boolean schemaExists = schemaInitService.checkSchemaExists(tempDs, dialect);
 
             if (!schemaExists) {
-                SqlDialectAdapter dialect = SqlDialectAdapter.resolve(target.getDialect(), target.getDbType());
                 result.put("status", "NO_SCHEMA");
                 result.put("needsInit", true);
                 result.put("dialect", dialect.getDialect());
@@ -80,7 +82,7 @@ public class DatabaseSwitchService {
                     result.put("message", "目标数据库中未检测到系统表，且该类型暂不支持自动建表，请手工执行 DDL 后重试");
                 }
             } else {
-                String version = schemaInitService.getSchemaVersion(tempDs);
+                String version = schemaInitService.getSchemaVersion(tempDs, dialect);
                 result.put("schemaVersion", version);
 
                 if ("1.0.0".equals(version)) {
@@ -135,15 +137,15 @@ public class DatabaseSwitchService {
                     target.getConnectionTimeout() != null ? target.getConnectionTimeout() : 30000
             );
 
-            // 检查表结构
-            boolean schemaExists = schemaInitService.checkSchemaExists(newDataSource);
+            // 检查表结构（dialect 存量值安全解析，未知回退 dbType 推断）
+            SqlDialectAdapter dialect = SqlDialectAdapter.resolve(target.getDialect(), target.getDbType());
+            boolean schemaExists = schemaInitService.checkSchemaExists(newDataSource, dialect);
             if (!schemaExists) {
                 if (!initIfNeeded) {
                     result.put("message", "目标数据库未初始化，请确认后重试");
                     return result;
                 }
-                // 初始化表结构（dialect 存量值安全解析，未知回退 dbType 推断）
-                SqlDialectAdapter dialect = SqlDialectAdapter.resolve(target.getDialect(), target.getDbType());
+                // 初始化表结构
                 if (!dialect.hasBuiltinDdl()) {
                     result.put("message", "该数据库类型暂不支持自动建表，请手工执行 DDL 后重试");
                     return result;

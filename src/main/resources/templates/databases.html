@@ -119,6 +119,9 @@
                     </select>
                 </div>
             </div>
+            <!-- 保留字冲突类型（DB2）：仅支持连接测试，不能作为运行库 -->
+            <div class="muted small" id="db-no-runtime-note" hidden
+                 th:text="#{databases.form.noRuntimeHint}">Connection test only</div>
 
             <!-- 内置数据库：只需 host/port/库名/参数/账号密码，驱动内置 -->
             <div id="db-panel-builtin">
@@ -255,6 +258,7 @@
         var jarNote = document.getElementById('db-jar-required-note');
         var paramsInput = document.getElementById('db-params');
         var preview = document.getElementById('db-urlPreview');
+        var noRuntimeNote = document.getElementById('db-no-runtime-note');
 
         function curType() { return typeMap[document.getElementById('db-dbType').value]; }
         function isCustom() { var t = curType(); return t && String(t.isCustom) === 'true'; }
@@ -397,6 +401,12 @@
             jarNote.hidden = !(jarRequired && !isCustom());
         }
 
+        /** 保留字冲突类型（DB2）提示：仅支持连接测试，不能作为运行库 */
+        function updateNoRuntimeNote() {
+            var t = curType();
+            noRuntimeNote.hidden = !(t && String(t.noRuntime) === 'true');
+        }
+
         /** 参数字段状态：类型专属示例作 placeholder；模板不含 {params} 的类型（如 Oracle）整体禁用 */
         function applyParamsState() {
             var t = curType();
@@ -430,6 +440,7 @@
             prevDefaultPort = t.defaultPort || null;
             applyParamsState();
             updateJarPanel();
+            updateNoRuntimeNote();
             refreshPreview();
         };
 
@@ -476,6 +487,7 @@
                 prevDefaultPort = curType() ? (curType().defaultPort || null) : null;
                 applyParamsState();
                 updateJarPanel();
+                updateNoRuntimeNote();
                 UI.openModal('db-modal');
                 refreshPreview();
             }).catch(function (err) {
