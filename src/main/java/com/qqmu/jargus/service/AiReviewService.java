@@ -105,7 +105,8 @@ public class AiReviewService {
                 "请以 JSON 数组格式返回结果，每个问题包含以下字段：" +
                 "title（问题标题）、description（问题描述）、level（严重程度，五选一：BLOCKER 阻断/CRITICAL 严重/MAJOR 主要/MINOR 次要/INFO 提示）、" +
                 "line（行号）、suggestion（修复建议）。" +
-                "只返回 JSON 数组，不要返回其他文字。";
+                "只返回 JSON 数组，不要返回其他文字。" +
+                "字符串值必须是合法 JSON 字符串：内容里出现的双引号写成 \\\" 或改用「」，字符串内不要裸换行。";
 
         return switch (reviewType) {
             case "security" -> basePrompt + "\n重点关注：安全漏洞、注入风险、敏感信息泄露、权限问题、加密问题等。";
@@ -166,9 +167,24 @@ public class AiReviewService {
                 return issues;
             }
 
-            List<Map<String, Object>> issueList = objectMapper.readValue(
-                    jsonStr, new TypeReference<List<Map<String, Object>>>() {}
-            );
+            List<Map<String, Object>> issueList = readIssueList(jsonStr);
+            if (issueList == null) {
+                // 三级容错都救不回：整份响应降级为一条 INFO 建议，不再静默丢弃
+                log.warn("AI 响应 JSON 无法修复，降级为整条建议: {}", abbreviate(responseContent));
+                issues.add(CheckIssue.builder()
+                        .level(IssueLevel.INFO)
+                        .checkerType(getCheckerType(reviewType))
+                        .checkerName(getCheckerName(reviewType))
+                        .ruleCode("AI_REVIEW_SUGGESTION")
+                        .title("AI 评审建议")
+                        .description(responseContent)
+                        .filePath(context.getCurrentFilePath())
+                        .lineStart(1)
+                        .aiGenerated(true)
+                        .severity(SeverityCatalog.rank(IssueLevel.INFO))
+                        .build());
+                return issues;
+            }
 
             for (Map<String, Object> item : issueList) {
                 try {
@@ -214,6 +230,96 @@ public class AiReviewService {
         }
 
         return issues;
+    }
+
+    /**
+     * 解析 AI 返回的问题数组，三级容错：
+     * 严格解析 → 转义字符串内嵌引号后重解 → 截掉尾部坏条目抢救前面完整条目。
+     * 大模型不保证严格 JSON（建议文案里带未转义双引号很常见），直接 readValue
+     * 会把整批结果丢掉；全部失败返回 null，由调用方降级。
+     */
+    List<Map<String, Object>> readIssueList(String json) {
+        TypeReference<List<Map<String, Object>>> listType = new TypeReference<>() {};
+        try {
+            return objectMapper.readValue(json, listType);
+        } catch (Exception ignored) {
+            // 落入修复流程
+        }
+        String repaired = escapeInnerQuotes(json);
+        try {
+            List<Map<String, Object>> list = objectMapper.readValue(repaired, listType);
+            log.info("AI 响应含未转义引号，修复后解析成功（{} 条）", list.size());
+            return list;
+        } catch (Exception ignored) {
+            // 落入抢救流程
+        }
+        String truncated = json;
+        for (int i = 0; i < 32; i++) {
+            int cut = truncated.lastIndexOf('}');
+            if (cut < 0) {
+                break;
+            }
+            truncated = truncated.substring(0, cut + 1) + "]";
+            try {
+                List<Map<String, Object>> list = objectMapper.readValue(truncated, listType);
+                log.warn("AI 响应 JSON 残缺，截掉尾部坏条目后抢救出 {} 条", list.size());
+                return list;
+            } catch (Exception ignored) {
+                // 继续往前截
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 转义 JSON 字符串值里未转义的双引号：引号后跟 , } ] : 或结尾才认为是
+     * 真正的结束引号，否则视为内容引号补一个反斜杠。
+     */
+    String escapeInnerQuotes(String json) {
+        StringBuilder sb = new StringBuilder(json.length() + 16);
+        boolean inString = false;
+        for (int i = 0; i < json.length(); i++) {
+            char c = json.charAt(i);
+            if (!inString) {
+                if (c == '"') {
+                    inString = true;
+                }
+                sb.append(c);
+                continue;
+            }
+            if (c == '\\') {
+                sb.append(c);
+                if (i + 1 < json.length()) {
+                    i++;
+                    sb.append(json.charAt(i));
+                }
+                continue;
+            }
+            if (c == '"') {
+                int j = i + 1;
+                while (j < json.length() && Character.isWhitespace(json.charAt(j))) {
+                    j++;
+                }
+                char next = j < json.length() ? json.charAt(j) : 0;
+                if (next == ',' || next == '}' || next == ']' || next == ':' || next == 0) {
+                    inString = false;
+                    sb.append(c);
+                } else {
+                    sb.append('\\').append(c);
+                }
+                continue;
+            }
+            sb.append(c);
+        }
+        return sb.toString();
+    }
+
+    private String abbreviate(String text) {
+        if (text == null) {
+            return "";
+        }
+        String flat = text.replaceAll("\\s+", " ");
+        return flat.length() <= 200 ? flat : flat.substring(0, 200) + "...";
     }
 
     /**
