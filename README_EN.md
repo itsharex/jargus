@@ -131,7 +131,8 @@ java -jar jargus-2.0.2.jar
 - First run auto-initializes the embedded H2 database (`data/`), scan snapshots & reports (`work/`) and logs (`logs/`) in the working directory — no external database required;
 - Open <http://localhost:8080>, default account `admin / 123456` (change the password after first login);
 - Custom port: `java -jar jargus-2.0.2.jar --server.port=9090`;
-- Override the built-in secrets in production: `--app.jwt-secret=<new-jwt-secret> --app.crypto-key=<new-aes-key>`.
+- Login state is a 24-hour cookie (tunable via `app.jwt-expire-hours`). The JWT signing secret is **generated randomly per startup when unset**: every restart/redeploy requires signing in again, and there is no public default secret to forge. Set `--app.jwt-secret=<secret>` only when logins must survive restarts (e.g. long-lived Bearer scripts);
+- Override the AES key in production: `--app.crypto-key=<new-aes-key>` (at-rest encryption of passwords and other sensitive fields).
 
 ### Option 2: Build from Source
 
@@ -180,7 +181,6 @@ docker run -d --name jargus \
   -v jargus-work:/app/work \
   -v jargus-logs:/app/logs \
   -v jargus-lib:/app/lib \
-  -e APP_JWT_SECRET="your-own-random-secret-at-least-32-chars" \
   -e APP_CRYPTO_KEY="your-16-char-key" \
   --restart unless-stopped \
   jargus:2.0.2
@@ -196,7 +196,7 @@ Health check: `curl http://localhost:8080/actuator/health` → `{"status":"UP"}`
 |----------|---------|-------------|
 | `SPRING_PROFILES_ACTIVE` | `prod` | Production profile |
 | `APP_AUTH_ENABLED` | `true` | Enable login authentication |
-| `APP_JWT_SECRET` | built-in placeholder | JWT signing secret — **must change in production** |
+| `APP_JWT_SECRET` | empty (random per startup) | JWT signing secret; empty = random per startup so restarts require re-login (recommended) — set only when logins must survive restarts |
 | `APP_JWT_EXPIRE_HOURS` | `24` | Token lifetime (hours) |
 | `APP_CRYPTO_KEY` | built-in placeholder | AES key for sensitive config (16 chars) — **must change in production** |
 | `APP_WORK_DIR` | `/app/work` | Snapshot / report working directory |

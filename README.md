@@ -131,7 +131,8 @@ java -jar jargus-2.0.2.jar
 - 首次启动自动在当前目录初始化内嵌 H2 数据库（`data/`）、扫描快照与报告（`work/`）、日志（`logs/`），无需外接数据库；
 - 访问 <http://localhost:8080>，默认账号 `admin / 123456`（登录后请尽快修改密码）；
 - 换端口：`java -jar jargus-2.0.2.jar --server.port=9090`；
-- 生产环境建议覆盖内置密钥：`--app.jwt-secret=<新JWT密钥> --app.crypto-key=<新AES密钥>`。
+- 登录态为 24 小时 Cookie（`app.jwt-expire-hours` 可调）。JWT 签名密钥**未配置时每次启动随机生成**：重启 / 重新部署后需重新登录，也不存在可被伪造的公开默认密钥；仅当需要跨重启保留登录态（如长期持 Bearer 的脚本）时显式配置 `--app.jwt-secret=<密钥>`；
+- 生产环境建议覆盖 AES 密钥：`--app.crypto-key=<新AES密钥>`（库内密码等敏感字段的静态加密）。
 
 ### 方式二：源码构建
 
@@ -180,7 +181,6 @@ docker run -d --name jargus \
   -v jargus-work:/app/work \
   -v jargus-logs:/app/logs \
   -v jargus-lib:/app/lib \
-  -e APP_JWT_SECRET="your-own-random-secret-at-least-32-chars" \
   -e APP_CRYPTO_KEY="your-16-char-key" \
   --restart unless-stopped \
   jargus:2.0.2
@@ -196,7 +196,7 @@ docker run -d --name jargus \
 |------|--------|------|
 | `SPRING_PROFILES_ACTIVE` | `prod` | 生产配置 |
 | `APP_AUTH_ENABLED` | `true` | 是否开启登录鉴权 |
-| `APP_JWT_SECRET` | 内置占位值 | JWT 签名密钥，**生产必须修改** |
+| `APP_JWT_SECRET` | 空（每次启动随机密钥） | JWT 签名密钥；留空时重启 / 重建后需重新登录（推荐），仅跨重启保留登录态才配置 |
 | `APP_JWT_EXPIRE_HOURS` | `24` | Token 有效期（小时） |
 | `APP_CRYPTO_KEY` | 内置占位值 | 敏感配置 AES 密钥（16 字符），**生产必须修改** |
 | `APP_WORK_DIR` | `/app/work` | 代码快照 / 报告工作目录 |

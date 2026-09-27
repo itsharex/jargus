@@ -12,8 +12,10 @@ services:
       TZ: Asia/Shanghai
       # 是否开启登录鉴权（默认开启）
       APP_AUTH_ENABLED: "true"
-      # 生产环境请修改以下两个密钥（可用 .env 文件覆盖）
-      APP_JWT_SECRET: ${APP_JWT_SECRET:-jargus-jwt-secret-key-please-change-in-production}
+      # JWT 密钥留空 = 每次启动随机生成（容器重建后需重新登录，推荐）；
+      # 需跨重建保留登录态才在 .env 配置固定值
+      APP_JWT_SECRET: ${APP_JWT_SECRET:-}
+      # AES 密钥（库内敏感字段静态加密）：生产环境请在 .env 配置
       APP_CRYPTO_KEY: ${APP_CRYPTO_KEY:-a1b2c3d4e5f6g7h8}
       # JVM 参数
       JAVA_OPTS: "-XX:MaxRAMPercentage=75.0 -Duser.timezone=Asia/Shanghai"

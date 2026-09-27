@@ -6,9 +6,11 @@
 app:
   # 默认开启登录鉴权（可用 APP_AUTH_ENABLED=false 关闭）
   auth-enabled: ${APP_AUTH_ENABLED:true}
-  # 生产环境务必通过环境变量注入以下两个密钥
-  jwt-secret: ${APP_JWT_SECRET:jargus-jwt-secret-key-please-change-in-production}
+  # JWT 签名密钥：未注入 APP_JWT_SECRET 时每次启动随机生成（重启/重建后需重新登录，
+  # 且不存在可被伪造的公开默认密钥）；需跨重启保留登录态才注入固定值
+  jwt-secret: ${APP_JWT_SECRET:}
   jwt-expire-hours: ${APP_JWT_EXPIRE_HOURS:24}
+  # AES 密钥（库内密码等敏感字段的静态加密）：生产环境务必通过环境变量注入
   crypto-key: ${APP_CRYPTO_KEY:a1b2c3d4e5f6g7h8}
   work-dir: ${APP_WORK_DIR:/app/work}
   driver-dir: ${APP_DRIVER_DIR:/app/lib/custom}

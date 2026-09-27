@@ -21,16 +21,23 @@ public class JwtUtil {
     private final SecretKey secretKey;
     private final long expireMs;
 
-    public JwtUtil(@Value("${app.jwt-secret:jargus-secret-key-2024-very-long-string}") String secret,
+    public JwtUtil(@Value("${app.jwt-secret:}") String secret,
                    @Value("${app.jwt-expire-hours:24}") int expireHours) {
-        byte[] keyBytes = secret.getBytes(StandardCharsets.UTF_8);
-        // 确保密钥至少 256 位
-        if (keyBytes.length < 32) {
-            byte[] padded = new byte[32];
-            System.arraycopy(keyBytes, 0, padded, 0, keyBytes.length);
-            keyBytes = padded;
+        if (secret == null || secret.isBlank()) {
+            // 未配置密钥：每次启动用随机签名密钥。重启后旧 token 自然全部失效
+            // （启动必重新登录），也避免各安装实例共用仓库里公开的默认密钥被伪造 Cookie。
+            this.secretKey = Jwts.SIG.HS256.key().build();
+            log.info("未配置 app.jwt-secret：本次启动使用随机签名密钥，重启后所有登录态失效、需重新登录");
+        } else {
+            byte[] keyBytes = secret.getBytes(StandardCharsets.UTF_8);
+            // 确保密钥至少 256 位
+            if (keyBytes.length < 32) {
+                byte[] padded = new byte[32];
+                System.arraycopy(keyBytes, 0, padded, 0, keyBytes.length);
+                keyBytes = padded;
+            }
+            this.secretKey = Keys.hmacShaKeyFor(keyBytes);
         }
-        this.secretKey = Keys.hmacShaKeyFor(keyBytes);
         this.expireMs = expireHours * 3600L * 1000L;
     }
 
