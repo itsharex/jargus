@@ -48,14 +48,14 @@
 
 **界面与国际化** — Thymeleaf 服务端渲染，无 Vue / npm / Node 构建链，零 CDN 全本地化资源（内网可用）；中英双语切换、深色 / 浅色主题、响应式布局（PC / 平板 / 手机）。
 
-**多数据库支持** — H2（内嵌默认，零安装）/ MySQL / PostgreSQL / Oracle 驱动内置；信创场景达梦 DM / 人大金仓 / openGauss 驱动随包内置；任意数据库可页面上传 JDBC 驱动接入；可视化切换、自动建表迁移、连通性测试。
+**多数据库支持** — 覆盖 18 类数据库：H2（内嵌默认，零安装），MySQL / MariaDB / TiDB / OceanBase / GBase 8a，PostgreSQL / openGauss / 人大金仓 KingBase / 瀚高 HighGo / 海量 Vastbase，Oracle / 达梦 DM / 崖山 YashanDB，SQL Server / DB2（仅连接测试）/ GBase 8s，神通 Oscar（上传驱动）及任意自定义库；Maven Central 可得的驱动全部随包内置（单 JAR 约 86MB，驱动增量约 14MB）；切换数据库真实生效，重启自动恢复上次活库、目标库不可用时显著告警并回退内置 H2；可视化自动建表迁移、连通性测试。其中达梦 / 金仓 / 瀚高 / Vastbase / 崖山 / GBase / 神通无公开测试镜像，驱动装载与建表脚本经人工核验（未实测），MySQL / MariaDB / PostgreSQL / openGauss / OceanBase / SQL Server 已真机全链路验证。
 
 ## 🧰 技术栈
 
 | 层次 | 技术选型 |
 |------|----------|
 | 后端框架 | Spring Boot 3.2.5 · Java 17（Web / AOP / Validation / Cache / Actuator） |
-| 持久层 | MyBatis-Plus 3.5.5 · H2 2.2（内嵌默认）· MySQL / PostgreSQL / Oracle / 达梦 / 金仓 / openGauss 驱动 · 动态多数据源 |
+| 持久层 | MyBatis-Plus 3.5.5 · H2 2.2（内嵌默认）· 17 种数据库驱动内置（MySQL / PostgreSQL / Oracle / SQL Server / DB2 / 达梦 / 金仓 / openGauss / 瀚高 / Vastbase / 崖山 / GBase / OceanBase 等）· 动态多数据源（多方言分页 / DDL / 增量迁移，真实切换 + 重启恢复） |
 | 静态分析 | JavaParser 3.25（AST + 符号求解）· ASM 9.6（字节码）· 自研 CPD 式重复代码指纹 |
 | AI 接入 | Spring WebFlux HTTP 客户端 · OpenAI 兼容 / Anthropic 双协议适配层 |
 | 报告与邮件 | OpenPDF 1.3（矢量中文 PDF）· Thymeleaf HTML 报告 · Spring Mail（SMTP / SSL / STARTTLS） |
@@ -181,7 +181,7 @@
 | 报告邮件推送 | 扫描完成自动发 HTML 摘要 + PDF 报告邮件 | 有告警通知，报告邮件需自行集成 | 不含 | 不含 |
 | 可视化报告 | 支持导出 HTML / PDF 中文报告 | 内置 Web 仪表盘，PDF 导出需插件或付费版 | 无报告界面 | 无报告界面 |
 | 离线 / 内网运行 | 全功能离线（AI 为可选增强） | 支持 | 支持 | 支持（CLI 本地运行） |
-| 信创数据库 | 达梦 / 人大金仓 / openGauss 驱动内置 | 官方支持 PostgreSQL / MySQL 等主流数据库 | 不适用（无服务端存储） | 不适用 |
+| 信创数据库 | 达梦 / 人大金仓 / openGauss / 瀚高 / 海量 / 崖山 / GBase / OceanBase / 神通 驱动内置，可作运行库 | 官方支持 PostgreSQL / MySQL 等主流数据库 | 不适用（无服务端存储） | 不适用 |
 | 授权费用 | MIT 授权 | 社区版免费，企业版付费 | 免费开源 | 私有仓库使用需付费 GitHub Advanced Security |
 | 语言覆盖 | Java | 多语言 | Java 为主 | 多语言 |
 | 规则生态规模 | 内置规则聚焦 Java 常见问题 | 内置规则数百条 | 规则数百条（Java 向） | 标准查询库与公开查询仓库 |
@@ -202,7 +202,7 @@
 
 ### 方式一：Release JAR（无需源码，最快）
 
-从 Release 直接下载**可运行 Jar**（GitHub 与 Gitee 为同一个包）：
+从 Release 直接下载**可运行 Jar**（GitHub 与 Gitee 为同一个包，约 86MB，含 17 种内置数据库驱动）：
 
 - GitHub Releases：<https://github.com/vfaner/jargus/releases>
 - Gitee Releases：<https://gitee.com/super_rgh/jargus/releases>

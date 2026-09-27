@@ -1,8 +1,6 @@
 package com.qqmu.jargus.config;
 
-import com.baomidou.mybatisplus.annotation.DbType;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
-import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -15,13 +13,13 @@ import org.springframework.context.annotation.Configuration;
 public class MybatisPlusConfig {
 
     /**
-     * 分页插件
+     * 分页插件：按 ActiveDialectHolder 的当前活库方言选择分页实现
+     * （不能写死 DbType，也不能依赖 MP 的 JDBC URL 自动探测——详见拦截器注释）
      */
     @Bean
     public MybatisPlusInterceptor mybatisPlusInterceptor() {
         MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
-        // 使用默认 DB 类型，实际分页时会根据方言调整
-        interceptor.addInnerInterceptor(new PaginationInnerInterceptor(DbType.H2));
+        interceptor.addInnerInterceptor(new DialectAwarePaginationInterceptor());
         return interceptor;
     }
 }

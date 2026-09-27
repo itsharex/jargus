@@ -8,6 +8,7 @@ import com.qqmu.jargus.mapper.CiScanRecordMapper;
 import com.qqmu.jargus.mapper.CiTriggerConfigMapper;
 import com.qqmu.jargus.mapper.ScanIssueMapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -70,9 +71,11 @@ public class CiCallbackService {
             if (taskId == null) {
                 return;
             }
-            CiScanRecord record = scanRecordMapper.selectOne(
+            // 分页取首行（各方言可移植；不能用 .last("LIMIT 1")，Oracle/SQLServer/DB2 不认）
+            List<CiScanRecord> rows = scanRecordMapper.selectPage(new Page<>(1, 1, false),
                     new QueryWrapper<CiScanRecord>().eq("task_id", taskId)
-                            .orderByDesc("id").last("LIMIT 1"));
+                            .orderByDesc("id")).getRecords();
+            CiScanRecord record = rows.isEmpty() ? null : rows.get(0);
             if (record == null) {
                 return;
             }
@@ -303,11 +306,11 @@ public class CiCallbackService {
             return List.of();
         }
         try {
-            List<ScanIssue> issues = scanIssueMapper.selectList(
+            // 分页限行（各方言可移植；不能用 .last("LIMIT 300")）
+            List<ScanIssue> issues = scanIssueMapper.selectPage(new Page<>(1, 300, false),
                     new QueryWrapper<ScanIssue>()
                             .eq("task_id", taskId)
-                            .eq("is_ignored", false)
-                            .last("LIMIT 300"));
+                            .eq("is_ignored", false)).getRecords();
             issues.sort(Comparator.comparingInt((ScanIssue i) -> levelOrder(i.getIssueLevel()))
                     .thenComparing(i -> i.getFilePath() == null ? "" : i.getFilePath()));
             return issues.size() > 5 ? issues.subList(0, 5) : issues;

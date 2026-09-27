@@ -613,12 +613,21 @@
         };
 
         window.activateDb = function (id) {
-            // 启用是可随时切回的轻量操作，不再弹确认框
-            UI.api.post('/api/databases/' + id + '/activate?initIfNeeded=true').then(function () {
-                UI.toast(UI.t('common.done'), 'ok');
-                setTimeout(function () { location.reload(); }, 500);
-            }).catch(function (err) {
-                UI.toast(String(err.message || err), 'danger');
+            // 切换是重操作：所有读写立即落到目标库（不迁移业务数据），必须确认
+            UI.confirm(UI.t('databases.switchConfirm'), { danger: true }).then(function (ok) {
+                if (!ok) return;
+                UI.api.post('/api/databases/' + id + '/activate?initIfNeeded=true').then(function (res) {
+                    if (res && res.success) {
+                        UI.toast(UI.t('databases.switched'), 'ok');
+                        setTimeout(function () { location.reload(); }, 800);
+                    } else if (res && res.busy) {
+                        UI.toast(UI.t('databases.switchBusy'), 'danger');
+                    } else {
+                        UI.toast(String((res && res.message) || UI.t('databases.noDdlSupport')), 'danger');
+                    }
+                }).catch(function (err) {
+                    UI.toast(String(err.message || err), 'danger');
+                });
             });
         };
 

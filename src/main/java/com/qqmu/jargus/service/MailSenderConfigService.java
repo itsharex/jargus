@@ -116,9 +116,10 @@ public class MailSenderConfigService {
 
     /** 取当前启用的发件配置（密码已解密）；无启用配置返回 null */
     public MailSender getEnabledSender() {
-        MailSender sender = mailSenderMapper.selectOne(
-                new QueryWrapper<MailSender>().eq("is_enabled", true).orderByAsc("id").last("LIMIT 1")
-        );
+        // 分页取首行（各方言可移植；不能用 .last("LIMIT 1")，Oracle/SQLServer/DB2 不认）
+        List<MailSender> rows = mailSenderMapper.selectPage(new Page<>(1, 1, false),
+                new QueryWrapper<MailSender>().eq("is_enabled", true).orderByAsc("id")).getRecords();
+        MailSender sender = rows.isEmpty() ? null : rows.get(0);
         if (sender == null) return null;
         if (sender.getPassword() != null && !sender.getPassword().isEmpty()) {
             sender.setPassword(CryptoUtil.decrypt(sender.getPassword()));

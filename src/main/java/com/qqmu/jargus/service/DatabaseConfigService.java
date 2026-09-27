@@ -9,6 +9,7 @@ import com.qqmu.jargus.util.CryptoUtil;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
@@ -19,7 +20,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 数据库配置服务
+ * 数据库配置服务。
+ * CRUD 走 mapper（落在当前活库）；活库非内置 H2 时写穿镜像到控制面
+ * （启动 H2 的 database_config 表是唯一真源，重启恢复/切换都读它）。
  */
 @Slf4j
 @Service
@@ -28,6 +31,10 @@ public class DatabaseConfigService {
 
     private final DatabaseConfigMapper databaseConfigMapper;
     private final DataSourceFactory dataSourceFactory;
+    private final ControlPlaneRepository controlPlane;
+
+    @Value("${datasource.default.url}")
+    private String defaultUrl;
 
     /**
      * 获取所有数据库配置
@@ -91,6 +98,7 @@ public class DatabaseConfigService {
 
         databaseConfigMapper.insert(config);
         log.info("新增数据库配置: id={}, name={}, type={}", config.getId(), config.getName(), config.getDbType());
+        mirrorToControlPlane(config.getId());
         config.setPassword(null);
         return config;
     }
@@ -115,6 +123,7 @@ public class DatabaseConfigService {
 
         databaseConfigMapper.updateById(config);
         log.info("更新数据库配置: id={}", id);
+        mirrorToControlPlane(id);
 
         DatabaseConfig updated = databaseConfigMapper.selectById(id);
         updated.setPassword(null);
@@ -134,7 +143,51 @@ public class DatabaseConfigService {
         }
         databaseConfigMapper.deleteById(id);
         log.info("删除数据库配置: id={}", id);
+        if (!controlPlane.isDefaultOnControl(defaultUrl)) {
+            controlPlane.deleteById(id);
+        }
         return true;
+    }
+
+    /**
+     * 写穿镜像：活库非内置 H2 时，把刚写入活库的配置行（含密文）同步到控制面，
+     * 保证控制面（重启恢复/切换的唯一真源）与活库副本一致。
+     */
+    private void mirrorToControlPlane(Long id) {
+        if (id == null || controlPlane.isDefaultOnControl(defaultUrl)) {
+            return;
+        }
+        DatabaseConfig cfg = databaseConfigMapper.selectById(id);
+        if (cfg == null) {
+            return;
+        }
+        controlPlane.upsert(toRow(cfg));
+    }
+
+    /** 实体 → 控制面行（key 为 database_config 小写列名，密码保持密文） */
+    private Map<String, Object> toRow(DatabaseConfig c) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("id", c.getId());
+        row.put("name", c.getName());
+        row.put("db_type", c.getDbType());
+        row.put("driver_class", c.getDriverClass());
+        row.put("jdbc_url", c.getJdbcUrl());
+        row.put("username", c.getUsername());
+        row.put("password", c.getPassword());
+        row.put("max_pool_size", c.getMaxPoolSize());
+        row.put("min_idle", c.getMinIdle());
+        row.put("connection_timeout", c.getConnectionTimeout());
+        row.put("dialect", c.getDialect());
+        row.put("driver_jar_path", c.getDriverJarPath());
+        row.put("connection_properties", c.getConnectionProperties());
+        row.put("is_custom", c.getIsCustom());
+        row.put("is_active", c.getIsActive());
+        row.put("schema_version", c.getSchemaVersion());
+        row.put("is_initialized", c.getIsInitialized());
+        row.put("sort_order", c.getSortOrder());
+        row.put("created_at", c.getCreatedAt());
+        row.put("updated_at", c.getUpdatedAt());
+        return row;
     }
 
     /**

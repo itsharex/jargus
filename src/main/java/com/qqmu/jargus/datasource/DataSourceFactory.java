@@ -44,10 +44,15 @@ public class DataSourceFactory {
             int minIdle,
             long connectionTimeout
     ) {
-        String cacheKey = driverClass + "|" + jdbcUrl + "|" + username;
-        if (dataSourceCache.containsKey(cacheKey)) {
-            return dataSourceCache.get(cacheKey);
+        // 缓存键包含密码哈希前 12 位：改密码后不再命中旧池；
+        // 同前缀（driver+url+user）的旧密码池被驱逐关闭，避免泄漏
+        String prefix = driverClass + "|" + jdbcUrl + "|" + username;
+        String cacheKey = prefix + "|" + passwordFingerprint(password);
+        DataSource cached = dataSourceCache.get(cacheKey);
+        if (cached != null) {
+            return cached;
         }
+        evictByPrefix(prefix, cacheKey);
 
         HikariConfig config = new HikariConfig();
         config.setDriverClassName(driverClass);
@@ -66,6 +71,53 @@ public class DataSourceFactory {
 
         log.info("创建数据源成功: driver={}, url={}, pool={}", driverClass, jdbcUrl, config.getPoolName());
         return dataSource;
+    }
+
+    /**
+     * 创建一次性临时数据源（不进缓存；连接检查等场景用完必须 close）。
+     */
+    public HikariDataSource createTemporaryDataSource(
+            String driverClass, String jdbcUrl, String username, String password,
+            String poolName, long connectionTimeout
+    ) {
+        HikariConfig config = new HikariConfig();
+        config.setDriverClassName(driverClass);
+        config.setJdbcUrl(jdbcUrl);
+        config.setUsername(username);
+        config.setPassword(password);
+        config.setPoolName(poolName != null ? poolName : "temp-pool-" + System.currentTimeMillis());
+        config.setMaximumPoolSize(1);
+        config.setMinimumIdle(0);
+        config.setConnectionTimeout(connectionTimeout > 0 ? connectionTimeout : 10000);
+        return new HikariDataSource(config);
+    }
+
+    /** 密码指纹：SHA-256 前 12 位十六进制（缓存键用，不可逆推出密码） */
+    private String passwordFingerprint(String password) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] digest = md.digest((password == null ? "" : password).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : digest) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.substring(0, 12);
+        } catch (Exception e) {
+            return "000000000000";
+        }
+    }
+
+    /** 驱逐同前缀（同库同用户、不同密码）的旧池并关闭 */
+    private void evictByPrefix(String prefix, String keepKey) {
+        for (String key : dataSourceCache.keySet()) {
+            if (key.startsWith(prefix + "|") && !key.equals(keepKey)) {
+                DataSource old = dataSourceCache.remove(key);
+                if (old instanceof HikariDataSource hds && !hds.isClosed()) {
+                    log.info("驱逐旧密码数据源池: {}", hds.getPoolName());
+                    hds.close();
+                }
+            }
+        }
     }
 
     /**

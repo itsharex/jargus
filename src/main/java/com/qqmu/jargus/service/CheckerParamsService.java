@@ -3,6 +3,7 @@ package com.qqmu.jargus.service;
 import com.qqmu.jargus.entity.CheckerConfig;
 import com.qqmu.jargus.mapper.CheckerConfigMapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.NullNode;
@@ -10,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -45,10 +47,10 @@ public class CheckerParamsService {
     public JsonNode getParams(String checkerCode) {
         return paramsCache.computeIfAbsent(checkerCode, code -> {
             try {
-                CheckerConfig cfg = checkerConfigMapper.selectOne(
-                        new QueryWrapper<CheckerConfig>()
-                                .eq("checker_code", code)
-                                .last("LIMIT 1"));
+                // 分页取首行（各方言可移植；不能用 .last("LIMIT 1")，Oracle/SQLServer/DB2 不认）
+                List<CheckerConfig> rows = checkerConfigMapper.selectPage(new Page<>(1, 1, false),
+                        new QueryWrapper<CheckerConfig>().eq("checker_code", code)).getRecords();
+                CheckerConfig cfg = rows.isEmpty() ? null : rows.get(0);
                 if (cfg != null && cfg.getParams() != null && !cfg.getParams().isBlank()) {
                     return objectMapper.readTree(cfg.getParams());
                 }
