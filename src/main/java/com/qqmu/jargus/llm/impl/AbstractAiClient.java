@@ -45,7 +45,8 @@ public abstract class AbstractAiClient implements AiChatClient {
      * 构建 WebClient
      */
     protected WebClient buildWebClient(AiProviderConfig config) {
-        int timeoutSeconds = config.getTimeoutSeconds() != null ? config.getTimeoutSeconds() : 120;
+        // 默认 300s：思考类模型单次评审调用破 2 分钟是常态，120s 会让跑了一半的调用白费
+        int timeoutSeconds = config.getTimeoutSeconds() != null ? config.getTimeoutSeconds() : 300;
 
         return WebClient.builder()
                 .baseUrl(config.getBaseUrl())
@@ -114,7 +115,7 @@ public abstract class AbstractAiClient implements AiChatClient {
                     .retrieve()
                     .bodyToMono(String.class)
                     .block(Duration.ofSeconds(config.getTimeoutSeconds() != null
-                            ? config.getTimeoutSeconds() : 120));
+                            ? config.getTimeoutSeconds() : 300));
         } catch (WebClientResponseException wce) {
             String respBody = wce.getResponseBodyAsString(StandardCharsets.UTF_8);
             if (respBody != null) {

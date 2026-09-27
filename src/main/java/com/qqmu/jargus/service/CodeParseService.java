@@ -30,6 +30,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -49,14 +51,18 @@ public class CodeParseService {
     private final CheckerRegistry checkerRegistry;
     private final JavaParser javaParser;
     private final AiClientFactory aiClientFactory;
+    /** 合并 AI 评审入口（每文件单次调用，见 checkFileAi） */
+    private final AiReviewService aiReviewService;
     /** AI 评审专用线程池（LLM 调用 IO 密集，逐文件并发，与扫描池隔离） */
     private final Executor aiReviewExecutor;
 
     public CodeParseService(CheckerRegistry checkerRegistry,
                             AiClientFactory aiClientFactory,
+                            AiReviewService aiReviewService,
                             @Qualifier("aiReviewExecutor") Executor aiReviewExecutor) {
         this.checkerRegistry = checkerRegistry;
         this.aiClientFactory = aiClientFactory;
+        this.aiReviewService = aiReviewService;
         this.aiReviewExecutor = aiReviewExecutor;
 
         // 配置 JavaParser
@@ -87,7 +93,6 @@ public class CodeParseService {
     public List<CheckIssue> scanAndCheck(
             Path sourceRoot,
             boolean includeTest,
-            boolean enableAiReview,
             Long taskId,
             String jdkVersion,
             String springBootVersion
@@ -97,25 +102,9 @@ public class CodeParseService {
         List<Path> javaFiles = findJavaFiles(sourceRoot, includeTest);
         log.info("找到 {} 个 Java 文件", javaFiles.size());
 
-        // 获取启用的本地检查器
+        // 获取启用的本地检查器（AI 评审已移至扫描后后台阶段，见 runAiReviewPhase）
         List<CodeChecker> localCheckers = checkerRegistry.getEnabledLocalCheckers();
         log.info("启用的本地检查器: {} 个", localCheckers.size());
-
-        // 获取启用的 AI 检查器（如果配置了 AI）
-        List<CodeChecker> aiCheckers = Collections.emptyList();
-        if (enableAiReview && aiClientFactory.isAiConfigured()) {
-            aiCheckers = checkerRegistry.getEnabledAiCheckers();
-            log.info("启用的 AI 检查器: {} 个", aiCheckers.size());
-        } else {
-            // 消除静默闸门：开关开了却没配厂商（或开关没开）时留痕，排查"AI 没效果"先看这行
-            log.info("扫描期 AI 检查跳过: 开关={}, 厂商已配置={}",
-                    enableAiReview, aiClientFactory.isAiConfigured());
-        }
-
-        // 合并所有检查器（PostScanChecker 扫描级后处理仍用合并全表；AI 检查器不实现该接口，行为不变）
-        List<CodeChecker> checkers = new ArrayList<>();
-        checkers.addAll(localCheckers);
-        checkers.addAll(aiCheckers);
 
         // 全局上下文数据
         Map<String, Object> globalData = new HashMap<>();
@@ -145,14 +134,6 @@ public class CodeParseService {
             }
         }
 
-        // AI 评审阶段：此前 AI 检查器混在逐文件循环里，但循环上下文 enableAiReview=false，
-        // AbstractAiChecker.accept() 一律拒绝，扫描期 AI 评审实际从未执行（静默失效）。
-        // 现拆为独立阶段：每个文件一个任务提交 aiReviewExecutor 并发执行，LLM 调用 IO 密集可安全并发。
-        if (!aiCheckers.isEmpty() && !javaFiles.isEmpty()) {
-            runAiReviewPhase(aiCheckers, javaFiles, sourceRoot, taskId,
-                    jdkVersion, springBootVersion, includeTest, globalData, allIssues);
-        }
-
         // 扫描级检查（跨文件汇总 / 依赖漏洞扫描）：文件循环结束后统一调用一次。
         // 即使没有任何 Java 文件也执行（依赖扫描只需 pom.xml）。
         CheckContext postCtx = CheckContext.builder()
@@ -163,7 +144,7 @@ public class CodeParseService {
                 .includeTestCode(includeTest)
                 .globalData(globalData)
                 .build();
-        for (CodeChecker checker : checkers) {
+        for (CodeChecker checker : localCheckers) {
             if (checker instanceof PostScanChecker postScanChecker) {
                 try {
                     allIssues.addAll(postScanChecker.postScanCheck(postCtx));
@@ -180,28 +161,50 @@ public class CodeParseService {
     }
 
     /**
-     * AI 评审阶段：每个文件作为独立任务提交 aiReviewExecutor 并发执行，等待全部完成。
-     * 结果汇入 allIssues（本身是线程安全的 synchronizedList）。
+     * 扫描后 AI 评审阶段：逐文件合并调用（每文件单次 LLM 调用覆盖全部启用维度），
+     * 每完成一个文件经 sink 增量交付（调用方在后台线程里落库/统计）。
+     * 本方法阻塞到全部文件完成，供协调线程调用；并发走 aiReviewExecutor。
      */
-    private void runAiReviewPhase(List<CodeChecker> aiCheckers,
-                                  List<Path> javaFiles,
-                                  Path sourceRoot,
-                                  Long taskId,
-                                  String jdkVersion,
-                                  String springBootVersion,
-                                  boolean includeTest,
-                                  Map<String, Object> globalData,
-                                  List<CheckIssue> allIssues) {
-        log.info("开始 AI 评审阶段: {} 个文件, {} 个 AI 检查器", javaFiles.size(), aiCheckers.size());
+    public void runAiReviewPhase(Long taskId,
+                                 Path sourceRoot,
+                                 boolean includeTest,
+                                 String jdkVersion,
+                                 String springBootVersion,
+                                 BiConsumer<Path, List<CheckIssue>> sink) {
+        if (!aiClientFactory.isAiConfigured()) {
+            log.info("扫描后 AI 评审跳过: 未配置/启用 AI 厂商, taskId={}", taskId);
+            return;
+        }
+        List<CodeChecker> aiCheckers = checkerRegistry.getEnabledAiCheckers();
+        if (aiCheckers.isEmpty()) {
+            log.info("扫描后 AI 评审跳过: 无启用的 AI 检查器, taskId={}", taskId);
+            return;
+        }
+        List<Path> javaFiles = findJavaFiles(sourceRoot, includeTest);
+        if (javaFiles.isEmpty()) {
+            return;
+        }
+        log.info("开始 AI 评审阶段: taskId={}, {} 个文件, {} 个 AI 检查器",
+                taskId, javaFiles.size(), aiCheckers.size());
         long start = System.currentTimeMillis();
+        int total = javaFiles.size();
+        AtomicInteger completed = new AtomicInteger();
+        Map<String, Object> globalData = new HashMap<>();
         List<CompletableFuture<Void>> futures = new ArrayList<>();
         for (Path javaFile : javaFiles) {
             futures.add(CompletableFuture.runAsync(() -> {
                 try {
-                    allIssues.addAll(checkFileAi(sourceRoot, javaFile, aiCheckers, taskId,
-                            jdkVersion, springBootVersion, includeTest, globalData));
+                    List<CheckIssue> issues = checkFileAi(sourceRoot, javaFile, aiCheckers, taskId,
+                            jdkVersion, springBootVersion, includeTest, globalData);
+                    sink.accept(javaFile, issues);
                 } catch (Exception e) {
                     log.warn("AI 评审文件 {} 出错: {}", javaFile, e.getMessage());
+                } finally {
+                    // 进度可见性：LLM 调用动辄数秒，长扫描不能再是黑盒
+                    int n = completed.incrementAndGet();
+                    if (n % 10 == 0 || n == total) {
+                        log.info("AI 评审进度: {}/{} 个文件", n, total);
+                    }
                 }
             }, aiReviewExecutor));
         }
@@ -210,7 +213,10 @@ public class CodeParseService {
     }
 
     /**
-     * 对单个文件执行 AI 检查器：与 checkFile 同构，但上下文 enableAiReview=true 放行 AI 检查器
+     * 对单个文件执行 AI 评审：与 checkFile 同构，但上下文 enableAiReview=true 放行 AI 检查器。
+     * 检查器不再逐个执行（那意味着每文件 3 次 LLM 调用），而是 accept 过滤后汇总
+     * 启用的评审维度，交给 AiReviewService.combinedReview 单次调用完成；
+     * /checkers 页的维度开关依然生效——关掉哪个维度，合并提示词就不含哪个。
      */
     private List<CheckIssue> checkFileAi(Path sourceRoot,
                                          Path javaFile,
@@ -262,18 +268,40 @@ public class CodeParseService {
                 .globalData(globalData)
                 .build();
 
-        List<CheckIssue> fileIssues = new ArrayList<>();
+        // accept 过滤（跳过非 Java / 超大文件）并汇总启用的评审维度
+        List<String> enabled = new ArrayList<>();
         for (CodeChecker checker : aiCheckers) {
             try {
-                if (checker.accept(context)) {
-                    fileIssues.addAll(checker.check(context));
+                if (!checker.accept(context)) {
+                    continue;
+                }
+                String type = switch (checker.getCheckerType()) {
+                    case AI_SEMANTIC -> "semantic";
+                    case AI_SECURITY -> "security";
+                    case AI_DESIGN -> "design";
+                    default -> null;
+                };
+                if (type != null && !enabled.contains(type)) {
+                    enabled.add(type);
                 }
             } catch (Exception e) {
                 log.warn("AI 检查器 {} 处理文件 {} 时出错: {}",
                         checker.getName(), relativePath, e.getMessage());
             }
         }
-        return fileIssues;
+        if (enabled.isEmpty()) {
+            return Collections.emptyList();
+        }
+        // 固定维度顺序，保证提示词稳定（注册表顺序不保证）
+        List<String> reviewTypes = Stream.of("semantic", "security", "design")
+                .filter(enabled::contains)
+                .collect(Collectors.toList());
+        try {
+            return aiReviewService.combinedReview(context, reviewTypes);
+        } catch (Exception e) {
+            log.warn("AI 合并评审文件 {} 出错: {}", relativePath, e.getMessage());
+            return Collections.emptyList();
+        }
     }
 
     /**

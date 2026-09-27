@@ -67,6 +67,7 @@ public class ScanTaskService {
     private final CiCallbackService ciCallbackService;
     private final MailNotifyService mailNotifyService;
     private final AiSuggestionService aiSuggestionService;
+    private final ReportService reportService;
 
     @Value("${app.work-dir:./work}")
     private String workDir;
@@ -378,20 +379,13 @@ public class ScanTaskService {
         // 回写关联的 CI 扫描记录状态（executeScan 内部已吞异常并置 FAILED）
         ScanTask latest = scanTaskMapper.selectById(taskId);
         String status = latest != null && latest.getStatus() != null ? latest.getStatus() : "FAILED";
-        // 建扫描时勾选「启用 AI 语义评审」：扫描成功后自动触发任务级 AI 深度评审（仅高中危）。
-        // fire-and-forget 不阻塞扫描池；未配置厂商时只记日志跳过；任何异常不影响后续 CI 回写与邮件通知
-        if ("SUCCESS".equals(status) && latest != null && Boolean.TRUE.equals(latest.getEnableAiReview())) {
-            if (aiSuggestionService.isAvailable()) {
-                try {
-                    aiSuggestionService.startDeepReview(taskId, "BLOCKER,CRITICAL,MAJOR");
-                    log.info("扫描完成，已自动触发 AI 深度评审: taskId={}, 范围=BLOCKER/CRITICAL/MAJOR", taskId);
-                } catch (Exception e) {
-                    log.warn("自动触发 AI 深度评审失败: taskId={}, err={}", taskId, e.getMessage());
-                }
-            } else {
-                log.info("AI 语义评审开关已开启，但未配置/启用 AI 厂商，跳过自动深度评审: taskId={}", taskId);
-            }
-        }
+        // 建扫描时勾选「启用 AI 语义评审」：扫描成功后后台跑 AI 合并评审（逐文件增量落库、
+        // 刷新统计），再链式深度评审（仅高中危），邮件等增强建议落库后才发（PDF 在发信瞬间
+        // 生成，含 AI 发现与 AI 建议）；深度评审未启动时回退 AI 阶段结束即发。
+        // fire-and-forget 不阻塞扫描池；CI 回写仍在 SUCCESS 时立即发出（commit status 不该等
+        // 慢模型），AI 后补问题不回写 CI（同深度评审口径）
+        boolean aiPhasePending = "SUCCESS".equals(status) && latest != null
+                && Boolean.TRUE.equals(latest.getEnableAiReview());
         try {
             ciTriggerService.syncRecordByTaskId(taskId, status);
         } catch (Exception e) {
@@ -399,8 +393,13 @@ public class ScanTaskService {
         }
         // CI 回调：commit status + MR/PR 自动回评（非 CI 任务无记录，直接返回；内部吞异常）
         ciCallbackService.onScanCompleted(taskId, status);
-        // 邮件通知：任务开启 notifyEnabled 时发送报告邮件（内部吞异常，绝不影响扫描结果与 CI 回写）
-        mailNotifyService.onScanCompleted(taskId, status);
+        if (aiPhasePending) {
+            // 邮件延迟到 AI 后台阶段结束后发（协调线程 finally 统一发，跳过/异常场景也发）
+            startAiPhaseAsync(taskId, status);
+        } else {
+            // 邮件通知：任务开启 notifyEnabled 时发送报告邮件（内部吞异常，绝不影响扫描结果与 CI 回写）
+            mailNotifyService.onScanCompleted(taskId, status);
+        }
     }
 
     /**
@@ -443,10 +442,10 @@ public class ScanTaskService {
 
             // 3. 执行代码检查
             log.info("开始代码静态检查...");
+            // 本地检查器同步跑完即 SUCCESS；AI 合并评审在扫描成功后由后台阶段增量补入
             List<CheckIssue> issues = codeParseService.scanAndCheck(
                     sourcePath,
                     Boolean.TRUE.equals(task.getIncludeTestCode()),
-                    Boolean.TRUE.equals(task.getEnableAiReview()),
                     taskId,
                     task.getJdkVersion(),
                     task.getSpringBootVersion()
@@ -499,6 +498,117 @@ public class ScanTaskService {
         } catch (Exception e) {
             log.error("扫描任务失败: taskId={}", taskId, e);
             updateTaskStatus(taskId, "FAILED", e.getMessage());
+        }
+    }
+
+    /**
+     * 扫描后 AI 评审后台阶段：协调线程不占扫描池槽位（同深度评审模式）。
+     * 扫描已按本地检查结论 SUCCESS 并回写 CI；AI 结果逐文件增量落库、刷新统计，
+     * 页面刷新即可看到 AI 发现增长。阶段结束后清报告缓存、链式触发深度评审；
+     * 报告邮件等深度评审完成回调里发（PDF 含 AI 建议），深度评审未启动或阶段
+     * 跳过/异常时回退 finally 立即发，任何路径都不漏发。
+     */
+    private void startAiPhaseAsync(Long taskId, String status) {
+        Thread coordinator = new Thread(() -> {
+            long start = System.currentTimeMillis();
+            try {
+                ScanTask task = scanTaskMapper.selectById(taskId);
+                if (task != null && task.getSnapshotPath() != null) {
+                    Path sourceRoot = Paths.get(task.getSnapshotPath());
+                    codeParseService.runAiReviewPhase(taskId, sourceRoot,
+                            Boolean.TRUE.equals(task.getIncludeTestCode()),
+                            task.getJdkVersion(), task.getSpringBootVersion(),
+                            (file, issues) -> persistAiIssues(taskId, sourceRoot, issues));
+                }
+            } catch (Exception e) {
+                log.warn("AI 评审后台阶段异常: taskId={}, err={}", taskId, e.getMessage());
+            } finally {
+                // 阶段期间打开过预览的任务会把不含 AI 发现的报告缓存下去，统一清掉
+                reportService.purgeReportCache(taskId);
+                log.info("AI 评审后台阶段结束: taskId={}, 耗时 {} ms",
+                        taskId, System.currentTimeMillis() - start);
+                // 邮件再等深度评审：PDF 在发信瞬间生成，等增强建议落库后报告才带「AI 建议」。
+                // 深度评审未实际启动（未配厂商/无待增强/已在跑）时回退到此处立即发
+                if (!chainDeepReview(taskId, status)) {
+                    mailNotifyService.onScanCompleted(taskId, status);
+                }
+            }
+        }, "ai-phase-" + taskId);
+        coordinator.setDaemon(true);
+        coordinator.start();
+    }
+
+    /** AI 阶段单文件结果落库并刷新任务统计；任务已被删除则静默丢弃 */
+    private void persistAiIssues(Long taskId, Path sourceRoot, List<CheckIssue> issues) {
+        if (issues == null || issues.isEmpty()) {
+            return;
+        }
+        if (scanTaskMapper.selectById(taskId) == null) {
+            return;
+        }
+        saveIssues(taskId, issues, sourceRoot.toAbsolutePath().toString());
+        refreshTaskIssueStats(taskId);
+    }
+
+    /**
+     * 按库中未忽略问题重算任务计数列（AI 增量落库后调用）。
+     * 门禁评分由计数实时推导（QualityGateService），无需单独维护。
+     */
+    private void refreshTaskIssueStats(Long taskId) {
+        List<ScanIssue> saved = scanIssueMapper.selectList(
+                new QueryWrapper<ScanIssue>().eq("task_id", taskId).eq("is_ignored", false));
+        int blocker = 0, critical = 0, major = 0, minor = 0, info = 0, ai = 0;
+        for (ScanIssue s : saved) {
+            if (Boolean.TRUE.equals(s.getIsAiGenerated())) {
+                ai++;
+            }
+            switch (s.getIssueLevel()) {
+                case "BLOCKER" -> blocker++;
+                case "CRITICAL" -> critical++;
+                case "MAJOR" -> major++;
+                case "MINOR" -> minor++;
+                default -> info++;
+            }
+        }
+        ScanTask upd = new ScanTask();
+        upd.setId(taskId);
+        upd.setBlockerCount(blocker);
+        upd.setCriticalCount(critical);
+        upd.setMajorCount(major);
+        upd.setMinorCount(minor);
+        upd.setInfoCount(info);
+        upd.setAiIssueCount(ai);
+        upd.setTotalIssues(blocker + critical + major + minor + info);
+        scanTaskMapper.updateById(upd);
+    }
+
+    /**
+     * 链式触发深度评审：未增强过滤天然只捡新问题的中高危（含 AI 新报）。
+     * 启动成功则把发邮件挂到深度评审完成回调（报告 PDF 含增强建议）；
+     * 返回 false 表示未启动（调用方回退立即发邮件），回调随之摘除。
+     */
+    private boolean chainDeepReview(Long taskId, String status) {
+        ScanTask t = scanTaskMapper.selectById(taskId);
+        if (t == null || !Boolean.TRUE.equals(t.getEnableAiReview())
+                || !aiSuggestionService.isAvailable()) {
+            return false;
+        }
+        aiSuggestionService.onJobComplete(taskId,
+                () -> mailNotifyService.onScanCompleted(taskId, status));
+        try {
+            AiSuggestionService.Progress progress =
+                    aiSuggestionService.startDeepReview(taskId, "BLOCKER,CRITICAL,MAJOR");
+            if (progress.isRunning()) {
+                log.info("AI 评审后台阶段完成，已链式触发 AI 深度评审: taskId={}, 范围=BLOCKER/CRITICAL/MAJOR，邮件延迟至深度评审结束", taskId);
+                return true;
+            }
+            // 无待增强问题：协调线程不跑，回调不会触发
+            aiSuggestionService.removeJobHook(taskId);
+            return false;
+        } catch (Exception e) {
+            aiSuggestionService.removeJobHook(taskId);
+            log.warn("链式触发 AI 深度评审失败: taskId={}, err={}", taskId, e.getMessage());
+            return false;
         }
     }
 

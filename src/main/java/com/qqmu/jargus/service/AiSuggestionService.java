@@ -67,6 +67,18 @@ public class AiSuggestionService {
 
     /** 深度评审进度：taskId → 进度（仅本节点内存态，重启后视为空闲） */
     private final Map<Long, Progress> jobs = new ConcurrentHashMap<>();
+    /** 深度评审完成一次性回调（扫描流程「等建议齐了再发邮件」用；手动发起不注册，行为不变） */
+    private final Map<Long, Runnable> completionHooks = new ConcurrentHashMap<>();
+
+    /** 注册深度评审完成回调：协调线程收尾后触发（完成/失败/异常中断都触发） */
+    public void onJobComplete(Long taskId, Runnable hook) {
+        completionHooks.put(taskId, hook);
+    }
+
+    /** 摘除未触发的回调：深度评审未实际启动时调用方回退立即发邮件 */
+    public Runnable removeJobHook(Long taskId) {
+        return completionHooks.remove(taskId);
+    }
 
     public boolean isAvailable() {
         return aiClientFactory.isAiConfigured();
@@ -279,6 +291,17 @@ public class AiSuggestionService {
             progress.setRunning(false);
             progress.setFinishedAt(LocalDateTime.now());
             progress.setMessage("深度评审异常中断：" + e.getMessage());
+        }
+        // 完成回调（如扫描流程的延迟发邮件）：收尾后触发，自身异常不影响 job 终态。
+        // 仅当本 job 仍是该任务的当前 job 时才触发：重跑会替换 jobs 条目，
+        // 旧 job 被 stopJob 提前收尾时不能吞掉新 job 注册的回调
+        Runnable hook = jobs.get(taskId) == progress ? completionHooks.remove(taskId) : null;
+        if (hook != null) {
+            try {
+                hook.run();
+            } catch (Exception e) {
+                log.warn("深度评审完成回调执行失败: taskId={}, err={}", taskId, e.getMessage());
+            }
         }
     }
 

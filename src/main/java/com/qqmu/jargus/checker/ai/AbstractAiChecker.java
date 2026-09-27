@@ -13,6 +13,11 @@ import java.util.function.Function;
 
 /**
  * AI 检查器基类
+ *
+ * 扫描期 AI 评审已改为合并调用：CodeParseService 在 AI 阶段汇总启用的维度，
+ * 每文件仅发一次 LLM 调用（见 AiReviewService#combinedReview）。本类及子类
+ * 仍是 /checkers 页启用开关的载体（accept 过滤与维度启停在这里生效），
+ * check() 保留单维度独立调用能力，扫描主链路不再逐个触发。
  */
 @Slf4j
 @RequiredArgsConstructor

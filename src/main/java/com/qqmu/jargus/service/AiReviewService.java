@@ -23,12 +23,17 @@ import java.util.Map;
 /**
  * AI 评审服务
  *
- * 负责调用 AI 大模型进行代码评审
+ * 负责调用 AI 大模型进行代码评审。
+ * 扫描期主路径是 {@link #combinedReview}：每文件单次调用覆盖全部启用维度
+ * （此前三检查器各调一次，耗时 ×3）；单维度入口保留给检查器独立调用。
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class AiReviewService {
+
+    /** 合并评审单次输出封顶（token）：与厂商「最大 Token 限制」取小，压住慢模型的单次耗时 */
+    private static final int COMBINED_MAX_TOKENS = 4096;
 
     private final AiClientFactory aiClientFactory;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -55,7 +60,51 @@ public class AiReviewService {
     }
 
     /**
-     * 执行 AI 评审
+     * 合并评审：单次 LLM 调用覆盖多个评审维度（semantic/security/design）。
+     *
+     * 提示词要求每条问题携带 type 字段标明所属维度，解析时按 type 归入
+     * 对应检查器类型；type 缺失或未知时回落到主维度（semantic 优先）。
+     *
+     * @param reviewTypes 启用的维度列表（非空，取值 semantic/security/design）
+     */
+    public List<CheckIssue> combinedReview(CheckContext context, List<String> reviewTypes) {
+        if (reviewTypes == null || reviewTypes.isEmpty()) {
+            return Collections.emptyList();
+        }
+        AiChatClient client = aiClientFactory.getActiveClient();
+        if (client == null) {
+            log.debug("AI 未配置，跳过 AI 评审");
+            return Collections.emptyList();
+        }
+
+        try {
+            AiChatRequest request = AiChatRequest.builder()
+                    .systemPrompt(buildCombinedSystemPrompt(reviewTypes))
+                    .userPrompt(buildUserPrompt(context))
+                    .temperature(0.3)
+                    // 输出封顶：慢模型下单次调用耗时主要由输出长度决定；
+                    // 客户端 effectiveMaxTokens 会与厂商「最大 Token 限制」取小，不会越过用户配置
+                    .maxTokens(COMBINED_MAX_TOKENS)
+                    .variables(buildVars(context))
+                    .build();
+
+            AiChatResponse response = client.chat(request);
+
+            if (!response.isSuccess()) {
+                log.warn("AI 合并评审失败: {}", response.getErrorMessage());
+                return Collections.emptyList();
+            }
+
+            return parseIssues(response.getContent(), reviewTypes, context);
+
+        } catch (Exception e) {
+            log.error("AI 合并评审异常: {}", e.getMessage(), e);
+            return Collections.emptyList();
+        }
+    }
+
+    /**
+     * 执行单维度 AI 评审
      */
     private List<CheckIssue> review(CheckContext context, String reviewType) {
         AiChatClient client = aiClientFactory.getActiveClient();
@@ -68,18 +117,12 @@ public class AiReviewService {
             String systemPrompt = buildSystemPrompt(reviewType);
             String userPrompt = buildUserPrompt(context);
 
-            Map<String, String> vars = new HashMap<>();
-            vars.put("code", context.getSourceCode());
-            vars.put("file_name", context.getCurrentFilePath());
-            vars.put("jdk_version", context.getJdkVersion() != null ? context.getJdkVersion() : "");
-            vars.put("spring_boot_version", context.getSpringBootVersion() != null ? context.getSpringBootVersion() : "");
-
             AiChatRequest request = AiChatRequest.builder()
                     .systemPrompt(systemPrompt)
                     .userPrompt(userPrompt)
                     .temperature(0.3)
                     // maxTokens 不在此硬编码：由厂商配置中的「最大 Token 限制」决定（默认不限制）
-                    .variables(vars)
+                    .variables(buildVars(context))
                     .build();
 
             AiChatResponse response = client.chat(request);
@@ -95,6 +138,15 @@ public class AiReviewService {
             log.error("AI 评审异常: {}", e.getMessage(), e);
             return Collections.emptyList();
         }
+    }
+
+    private Map<String, String> buildVars(CheckContext context) {
+        Map<String, String> vars = new HashMap<>();
+        vars.put("code", context.getSourceCode());
+        vars.put("file_name", context.getCurrentFilePath());
+        vars.put("jdk_version", context.getJdkVersion() != null ? context.getJdkVersion() : "");
+        vars.put("spring_boot_version", context.getSpringBootVersion() != null ? context.getSpringBootVersion() : "");
+        return vars;
     }
 
     /**
@@ -113,6 +165,29 @@ public class AiReviewService {
             case "design" -> basePrompt + "\n重点关注：代码设计、架构模式、SOLID 原则、可扩展性、可维护性、耦合度等。";
             default -> basePrompt + "\n关注：代码质量、可读性、最佳实践、潜在 bug、性能问题等。";
         };
+    }
+
+    /**
+     * 构建合并评审系统提示词：单次调用覆盖全部启用维度，每条问题带 type 字段。
+     * 合并后单条响应更长，加软上限（10 条）降低 maxTokens 截断概率。
+     */
+    private String buildCombinedSystemPrompt(List<String> reviewTypes) {
+        StringBuilder sb = new StringBuilder("你是一位资深的 Java 代码审查专家。请仔细审查以下代码，找出其中的问题。")
+                .append("请以 JSON 数组格式返回结果，每个问题包含以下字段：")
+                .append("title（问题标题）、description（问题描述）、level（严重程度，五选一：BLOCKER 阻断/CRITICAL 严重/MAJOR 主要/MINOR 次要/INFO 提示）、")
+                .append("line（行号）、suggestion（修复建议）、type（评审维度，取值：")
+                .append(String.join("/", reviewTypes)).append("）。")
+                .append("只返回 JSON 数组，不要返回其他文字。")
+                .append("聚焦最重要的问题，单文件合计不超过 5 条；description 与 suggestion 各不超过 50 字、直指要害。")
+                .append("字符串值必须是合法 JSON 字符串：内容里出现的双引号写成 \\\" 或改用「」，字符串内不要裸换行。");
+        for (String type : reviewTypes) {
+            switch (type) {
+                case "security" -> sb.append("\ntype=security 重点关注：安全漏洞、注入风险、敏感信息泄露、权限问题、加密问题等。");
+                case "design" -> sb.append("\ntype=design 重点关注：代码设计、架构模式、SOLID 原则、可扩展性、可维护性、耦合度等。");
+                default -> sb.append("\ntype=semantic 关注：代码质量、可读性、最佳实践、潜在 bug、性能问题等。");
+            }
+        }
+        return sb.toString();
     }
 
     /**
@@ -139,31 +214,31 @@ public class AiReviewService {
     }
 
     /**
-     * 解析 AI 返回的问题
+     * 解析 AI 返回的问题（单维度入口，检查器独立调用时使用）
      */
     private List<CheckIssue> parseIssues(String responseContent, String reviewType, CheckContext context) {
+        return parseIssues(responseContent, List.of(reviewType), context);
+    }
+
+    /**
+     * 解析 AI 返回的问题（多维度合并入口）。
+     *
+     * 每条问题按 type 字段归入对应维度；type 缺失或不在启用维度内时回落主维度。
+     * 单维度调用时响应本就不含 type 字段，回落行为与旧版完全一致。
+     */
+    List<CheckIssue> parseIssues(String responseContent, List<String> allowedTypes, CheckContext context) {
         List<CheckIssue> issues = new ArrayList<>();
         if (responseContent == null || responseContent.isEmpty()) {
             return issues;
         }
+        String primaryType = allowedTypes.contains("semantic") ? "semantic" : allowedTypes.get(0);
 
         try {
             // 尝试提取 JSON 数组
             String jsonStr = extractJsonArray(responseContent);
             if (jsonStr == null) {
                 // 如果解析不出 JSON，把整个响应作为一个 INFO 级别的建议
-                issues.add(CheckIssue.builder()
-                        .level(IssueLevel.INFO)
-                        .checkerType(getCheckerType(reviewType))
-                        .checkerName(getCheckerName(reviewType))
-                        .ruleCode("AI_REVIEW_SUGGESTION")
-                        .title("AI 评审建议")
-                        .description(responseContent)
-                        .filePath(context.getCurrentFilePath())
-                        .lineStart(1)
-                        .aiGenerated(true)
-                        .severity(SeverityCatalog.rank(IssueLevel.INFO))
-                        .build());
+                issues.add(fallbackIssue(responseContent, primaryType, context));
                 return issues;
             }
 
@@ -171,18 +246,7 @@ public class AiReviewService {
             if (issueList == null) {
                 // 三级容错都救不回：整份响应降级为一条 INFO 建议，不再静默丢弃
                 log.warn("AI 响应 JSON 无法修复，降级为整条建议: {}", abbreviate(responseContent));
-                issues.add(CheckIssue.builder()
-                        .level(IssueLevel.INFO)
-                        .checkerType(getCheckerType(reviewType))
-                        .checkerName(getCheckerName(reviewType))
-                        .ruleCode("AI_REVIEW_SUGGESTION")
-                        .title("AI 评审建议")
-                        .description(responseContent)
-                        .filePath(context.getCurrentFilePath())
-                        .lineStart(1)
-                        .aiGenerated(true)
-                        .severity(SeverityCatalog.rank(IssueLevel.INFO))
-                        .build());
+                issues.add(fallbackIssue(responseContent, primaryType, context));
                 return issues;
             }
 
@@ -203,6 +267,8 @@ public class AiReviewService {
                         } catch (NumberFormatException ignored) {
                         }
                     }
+
+                    String reviewType = resolveType(item.get("type"), allowedTypes);
 
                     CheckIssue issue = CheckIssue.builder()
                             .level(level)
@@ -230,6 +296,31 @@ public class AiReviewService {
         }
 
         return issues;
+    }
+
+    /** 整份响应无法结构化解析时的降级建议条目 */
+    private CheckIssue fallbackIssue(String responseContent, String reviewType, CheckContext context) {
+        return CheckIssue.builder()
+                .level(IssueLevel.INFO)
+                .checkerType(getCheckerType(reviewType))
+                .checkerName(getCheckerName(reviewType))
+                .ruleCode("AI_REVIEW_SUGGESTION")
+                .title("AI 评审建议")
+                .description(responseContent)
+                .filePath(context.getCurrentFilePath())
+                .lineStart(1)
+                .aiGenerated(true)
+                .severity(SeverityCatalog.rank(IssueLevel.INFO))
+                .build();
+    }
+
+    /** type 字段归一化：小写后必须落在启用维度内，否则回落主维度（semantic 优先） */
+    private String resolveType(Object raw, List<String> allowedTypes) {
+        String t = raw == null ? "" : String.valueOf(raw).trim().toLowerCase();
+        if (allowedTypes.contains(t)) {
+            return t;
+        }
+        return allowedTypes.contains("semantic") ? "semantic" : allowedTypes.get(0);
     }
 
     /**
