@@ -92,6 +92,8 @@
                         <span class="track"></span>
                         <span class="switch-text" th:text="#{scan.opt.notify}">Email notification</span>
                     </label>
+                    <div class="field-hint text-danger" id="notify-hint" hidden
+                         th:text="#{mail.notifyUnavailable}">No enabled sender config</div>
                 </div>
             </div>
             <div class="field" id="notify-field" hidden style="max-width:420px; margin-top:4px;">
@@ -181,6 +183,18 @@
                 hint.className = 'field-hint text-danger';
                 hint.textContent = UI.t('scan.aiUnavailable');
                 optAi.closest('.field').appendChild(hint);
+            }
+        }).catch(function () { /* 查询失败不阻塞表单，保守起见不动开关 */ });
+
+        // 发件配置可用性：无启用配置时禁用通知开关并警示，
+        // 避免"勾上了、扫完邮件却被静默跳过"的观感（MailNotifyService 无启用配置时静默跳过）
+        var notifyHint = document.getElementById('notify-hint');
+        UI.api.get('/api/mail/senders/notify-available').then(function (res) {
+            if (res && res.available === false) {
+                optNotify.checked = false;
+                optNotify.disabled = true;
+                notifyField.hidden = true;
+                notifyHint.hidden = false;
             }
         }).catch(function () { /* 查询失败不阻塞表单，保守起见不动开关 */ });
 

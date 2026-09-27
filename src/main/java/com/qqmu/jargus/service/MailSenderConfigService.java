@@ -127,6 +127,12 @@ public class MailSenderConfigService {
         return sender;
     }
 
+    /** 是否存在启用的发件配置（轻量计数，不解密密码；供前端探活通知开关可用性） */
+    public boolean hasEnabledSender() {
+        Long n = mailSenderMapper.selectCount(new QueryWrapper<MailSender>().eq("is_enabled", true));
+        return n != null && n > 0;
+    }
+
     /** 按配置构建 JavaMailSenderImpl（不依赖 spring.mail.* 全局属性） */
     public JavaMailSenderImpl buildMailSender(MailSender cfg) {
         JavaMailSenderImpl impl = new JavaMailSenderImpl();

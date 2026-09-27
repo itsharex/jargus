@@ -423,6 +423,8 @@
                         <span class="track"></span>
                         <span class="switch-text" th:text="#{scan.opt.notify}">Email notification</span>
                     </label>
+                    <div class="field-hint text-danger" id="edit-notify-hint" hidden
+                         th:text="#{mail.notifyUnavailable}">No enabled sender config</div>
                 </div>
             </div>
             <div class="field" id="edit-notify-field" hidden style="max-width:420px; margin-top:4px;">
@@ -589,6 +591,8 @@
         var pasteTask = false;
         var snapshotOk = false;
         var readOnly = false;
+        /** 是否存在启用的发件配置（无则通知开关锁定为关；拉取失败保守视为有） */
+        var mailOk = true;
 
         var optNotify = document.getElementById('edit-opt-notify');
         var notifyField = document.getElementById('edit-notify-field');
@@ -603,6 +607,9 @@
         function refreshState() {
             ['edit-task-name', 'edit-project-name', 'edit-opt-include', 'edit-opt-ai', 'edit-opt-notify']
                 .forEach(function (id) { document.getElementById(id).disabled = readOnly; });
+            // 无启用发件配置时通知开关锁定为关（服务端此时静默跳过发信，开着也无意义）
+            document.getElementById('edit-opt-notify').disabled = readOnly || !mailOk;
+            document.getElementById('edit-notify-hint').hidden = mailOk;
             // PASTE 任务无单测可跑：跳过单测开关恒禁用（服务端同样强制）
             document.getElementById('edit-opt-skip').disabled = readOnly || pasteTask;
             document.getElementById('edit-running-banner').hidden = !readOnly;
@@ -617,9 +624,11 @@
             taskId = btn.getAttribute('data-edit-id');
             Promise.all([
                 UI.api.get('/api/scans/' + taskId),
-                UI.api.get('/api/mail/recipients/options').catch(function () { return []; })
+                UI.api.get('/api/mail/recipients/options').catch(function () { return []; }),
+                UI.api.get('/api/mail/senders/notify-available').catch(function () { return { available: true }; })
             ]).then(function (res) {
                 var t = res[0] || {};
+                mailOk = !(res[2] && res[2].available === false);
                 document.getElementById('edit-task-ref').textContent =
                     (t.taskName || btn.getAttribute('data-edit-name') || '') + '  #' + taskId;
                 document.getElementById('edit-task-name').value = t.taskName || '';
@@ -629,7 +638,7 @@
                 document.getElementById('edit-skip-hint').hidden = !pasteTask;
                 document.getElementById('edit-opt-include').checked = !!t.includeTestCode;
                 document.getElementById('edit-opt-ai').checked = !!t.enableAiReview;
-                optNotify.checked = !!t.notifyEnabled;
+                optNotify.checked = mailOk && !!t.notifyEnabled;
                 notifyField.hidden = !optNotify.checked;
                 // multiSelect 契约：setOptions 先于 set
                 notifyMs.setOptions(res[1] || []);

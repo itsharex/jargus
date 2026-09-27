@@ -50,6 +50,14 @@ public class MailSenderController {
     }
 
     /**
+     * 是否存在启用的发件配置（前端据此决定邮件通知开关可否点击；get 前缀 VIEWER 放行）
+     */
+    @GetMapping("/notify-available")
+    public Result<Map<String, Object>> getNotifyAvailable() {
+        return Result.success(Map.of("available", mailSenderConfigService.hasEnabledSender()));
+    }
+
+    /**
      * 新增发件配置
      */
     @PostMapping

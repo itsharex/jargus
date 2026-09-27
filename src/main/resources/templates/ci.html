@@ -386,6 +386,8 @@
                     <span class="track"></span>
                     <span class="switch-text" th:text="#{ci.opt.notify}">Email notification</span>
                 </label>
+                <div class="field-hint text-danger" id="trig-notify-hint" hidden
+                     th:text="#{mail.notifyUnavailable}">No enabled sender config</div>
             </div>
             <div class="field" id="trig-notify-field" hidden>
                 <label th:text="#{mail.opt.recipients}">Notify recipients</label>
@@ -616,6 +618,23 @@
             trigNotifyMs.setOptions(list || []);
         }).catch(function () { /* 拉取失败仅影响下拉 */ });
 
+        // 发件配置可用性：无启用配置时弹窗内通知开关禁用并警示。
+        // form.reset() 不会清 disabled，故每次开弹窗都须经 applyMailNotifyState 复位
+        var mailNotifyAvailable = true;
+        var trigNotifyHint = document.getElementById('trig-notify-hint');
+        function applyMailNotifyState() {
+            trigNotifyEnabled.disabled = !mailNotifyAvailable;
+            trigNotifyHint.hidden = mailNotifyAvailable;
+            if (!mailNotifyAvailable) {
+                trigNotifyEnabled.checked = false;
+                trigNotifyField.hidden = true;
+            }
+        }
+        UI.api.get('/api/mail/senders/notify-available').then(function (res) {
+            mailNotifyAvailable = !(res && res.available === false);
+            applyMailNotifyState();
+        }).catch(function () { /* 拉取失败保守不锁开关 */ });
+
         window.openTriggerForm = function (id) {
             document.getElementById('trig-id').value = id || '';
             document.getElementById('trig-modal-title').textContent =
@@ -634,6 +653,7 @@
                 trigNotifyEnabled.checked = false;
                 trigNotifyField.hidden = true;
                 trigNotifyMs.set('');
+                applyMailNotifyState();
                 prevDefaultUrl = null;
                 onTriggerPlatformChange();
                 UI.openModal('trigger-modal');
@@ -665,6 +685,7 @@
                 trigNotifyEnabled.checked = !!t.notifyEnabled;
                 trigNotifyField.hidden = !trigNotifyEnabled.checked;
                 trigNotifyMs.set(t.notifyRecipientIds || '');
+                applyMailNotifyState();
                 UI.openModal('trigger-modal');
             }).catch(function (err) {
                 UI.toast(String(err.message || err), 'danger');
