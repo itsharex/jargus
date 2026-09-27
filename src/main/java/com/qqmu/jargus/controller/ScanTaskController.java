@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -126,6 +127,33 @@ public class ScanTaskController {
             @RequestParam("file") MultipartFile file
     ) throws IOException {
         ScanTask task = scanTaskService.rescanFromZip(id, file.getBytes());
+        if (!submitScan(task)) return Result.error("当前扫描任务过多（已达并发上限），请稍后重试");
+        return Result.success(task);
+    }
+
+    /**
+     * 修改任务：任务名/项目名/扫描选项（不触发扫描，保存后由重跑或下次扫描生效）
+     */
+    @PutMapping("/{id}")
+    public Result<ScanTask> updateTask(@PathVariable Long id, @RequestBody Map<String, Object> body) {
+        String taskName = (String) body.getOrDefault("taskName", "");
+        String projectName = (String) body.getOrDefault("projectName", "");
+        boolean skipUnitTest = Boolean.TRUE.equals(body.getOrDefault("skipUnitTest", true));
+        boolean includeTestCode = Boolean.TRUE.equals(body.getOrDefault("includeTestCode", false));
+        boolean enableAiReview = Boolean.TRUE.equals(body.getOrDefault("enableAiReview", false));
+        boolean notifyEnabled = Boolean.TRUE.equals(body.getOrDefault("notifyEnabled", false));
+        String notifyRecipientIds = body.get("notifyRecipientIds") != null
+                ? body.get("notifyRecipientIds").toString() : null;
+        return Result.success(scanTaskService.updateTask(id, taskName, projectName,
+                skipUnitTest, includeTestCode, enableAiReview, notifyEnabled, notifyRecipientIds));
+    }
+
+    /**
+     * 原地重跑：不重新上传代码，复用现有快照清空旧结果后重新排队扫描，任务 id 与结果链接不变
+     */
+    @PostMapping("/{id}/rerun")
+    public Result<ScanTask> rerun(@PathVariable Long id) {
+        ScanTask task = scanTaskService.rerunInPlace(id);
         if (!submitScan(task)) return Result.error("当前扫描任务过多（已达并发上限），请稍后重试");
         return Result.success(task);
     }

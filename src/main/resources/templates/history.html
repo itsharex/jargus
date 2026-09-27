@@ -97,10 +97,11 @@
                                th:title="#{common.view}">
                                 <svg class="ico"><use href="#eye"/></svg>
                             </a>
-                            <a class="btn btn-icon" th:href="@{/api/reports/{id}/download(id=${t.id},format='pdf')}"
-                               th:if="${t.status == 'SUCCESS'}" th:title="#{history.report}">
-                                <svg class="ico"><use href="#box-arrow-in-down-left"/></svg>
-                            </a>
+                            <button type="button" class="btn btn-icon" th:if="${isAdmin}"
+                                    th:data-edit-id="${t.id}" th:data-edit-name="${t.taskName}"
+                                    th:title="#{history.edit}">
+                                <svg class="ico"><use href="#pencil"/></svg>
+                            </button>
                             <button type="button" class="btn btn-icon" th:if="${isAdmin}"
                                     data-api-role="action" th:data-api="'/api/scans/' + ${t.id}"
                                     data-method="DELETE" data-reload="true"

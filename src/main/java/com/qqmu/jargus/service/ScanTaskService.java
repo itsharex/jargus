@@ -66,6 +66,7 @@ public class ScanTaskService {
     private final CiTriggerService ciTriggerService;
     private final CiCallbackService ciCallbackService;
     private final MailNotifyService mailNotifyService;
+    private final AiSuggestionService aiSuggestionService;
 
     @Value("${app.work-dir:./work}")
     private String workDir;
@@ -184,33 +185,113 @@ public class ScanTaskService {
 
         deleteOldSnapshot(task.getSnapshotPath());
 
+        clearResultsAndReset(taskId, sourceDir.toAbsolutePath().toString(), "ZIP");
+
+        task.setSnapshotPath(sourceDir.toAbsolutePath().toString());
+        task.setSourceType("ZIP");
+        task.setStatus("PENDING");
+        return task;
+    }
+
+    /**
+     * 修改任务：任务名/项目名/扫描选项（不触发扫描，下次重跑时生效）。
+     * PENDING/RUNNING 不可改；PASTE 任务跳过单测恒为 true（粘贴代码没有单测可跑，服务端强制）。
+     */
+    public ScanTask updateTask(Long taskId, String taskName, String projectName,
+                               boolean skipUnitTest, boolean includeTestCode, boolean enableAiReview,
+                               boolean notifyEnabled, String notifyRecipientIds) {
+        ScanTask task = scanTaskMapper.selectById(taskId);
+        if (task == null) {
+            throw new RuntimeException("任务不存在");
+        }
+        if ("PENDING".equals(task.getStatus()) || "RUNNING".equals(task.getStatus())) {
+            throw new RuntimeException("任务正在排队或扫描中，请等待完成后再修改");
+        }
+        if (taskName == null || taskName.trim().isEmpty()) {
+            throw new RuntimeException("任务名称不能为空");
+        }
+        // 清空收件人时前端传空串 → 归一化为 null；通知关闭时收件人一并清空（对齐创建语义）
+        String recipients = notifyEnabled ? blankToNull(notifyRecipientIds) : null;
+
+        // updateById 跳 null 字段（project_name/notify_recipient_ids 无法清空），改用 UpdateWrapper 显式 set
+        scanTaskMapper.update(null, new UpdateWrapper<ScanTask>()
+                .eq("id", taskId)
+                .set("task_name", taskName.trim())
+                .set("project_name", blankToNull(projectName))
+                .set("skip_unit_test", "PASTE".equals(task.getSourceType()) || skipUnitTest)
+                .set("include_test_code", includeTestCode)
+                .set("enable_ai_review", enableAiReview)
+                .set("notify_enabled", notifyEnabled)
+                .set("notify_recipient_ids", recipients)
+                .set("updated_at", LocalDateTime.now()));
+
+        ScanTask updated = scanTaskMapper.selectById(taskId);
+        fillSnapshotExists(updated);
+        return updated;
+    }
+
+    /**
+     * 原地重跑：不重新上传代码，复用现有快照，清空旧结果后重新排队扫描，任务 id 与结果链接不变。
+     */
+    public ScanTask rerunInPlace(Long taskId) {
+        ScanTask task = scanTaskMapper.selectById(taskId);
+        if (task == null) {
+            throw new RuntimeException("任务不存在");
+        }
+        if ("PENDING".equals(task.getStatus()) || "RUNNING".equals(task.getStatus())) {
+            throw new RuntimeException("任务正在排队或扫描中，请等待完成后再重跑");
+        }
+        // 服务端复查快照仍在磁盘上（前端禁用按钮不可信，TOCTOU 兜底）
+        if (task.getSnapshotPath() == null || task.getSnapshotPath().isEmpty()
+                || !Files.exists(Paths.get(task.getSnapshotPath()))) {
+            throw new RuntimeException("源文件已不存在，请改用「重新上传扫描」");
+        }
+        clearResultsAndReset(taskId, null, null);
+        task.setStatus("PENDING");
+        return task;
+    }
+
+    /**
+     * 清空旧扫描结果并把任务重置回待扫描状态（重新上传扫描 / 原地重跑共用）。
+     * newSnapshotPath 非 null 时同步更新快照路径与来源类型（重新上传场景）。
+     */
+    private void clearResultsAndReset(Long taskId, String newSnapshotPath, String newSourceType) {
+        // 深度评审在途时先释放重入锁，否则重跑后扫描完成时的自动评审会被旧 running 标记拒绝
+        aiSuggestionService.stopJob(taskId);
         // 旧问题与报告磁盘缓存必须清掉，否则与新扫描结果混在一起 / 下载到过期报告
         scanIssueMapper.delete(new QueryWrapper<ScanIssue>().eq("task_id", taskId));
         deleteReportCache(taskId);
 
-        // updateById 会跳过 null 字段，重置类字段（error_message/started_at/completed_at）用 UpdateWrapper 显式置空
-        scanTaskMapper.update(null, new UpdateWrapper<ScanTask>()
+        // updateById 会跳过 null 字段，重置类字段（error_message/started_at/completed_at 等）用 UpdateWrapper 显式置空
+        UpdateWrapper<ScanTask> uw = new UpdateWrapper<ScanTask>()
                 .eq("id", taskId)
-                .set("snapshot_path", sourceDir.toAbsolutePath().toString())
-                .set("source_type", "ZIP")
                 .set("status", "PENDING")
                 .set("error_message", null)
                 .set("started_at", null)
                 .set("completed_at", null)
+                .set("duration_seconds", null)
+                .set("mail_status", null)
                 .set("blocker_count", 0)
                 .set("critical_count", 0)
                 .set("major_count", 0)
                 .set("minor_count", 0)
                 .set("info_count", 0)
                 .set("total_issues", 0)
+                .set("ai_issue_count", 0)
                 .set("total_files", 0)
                 .set("total_lines", 0)
-                .set("updated_at", LocalDateTime.now()));
+                .set("updated_at", LocalDateTime.now());
+        if (newSnapshotPath != null) {
+            uw.set("snapshot_path", newSnapshotPath);
+        }
+        if (newSourceType != null) {
+            uw.set("source_type", newSourceType);
+        }
+        scanTaskMapper.update(null, uw);
+    }
 
-        task.setSnapshotPath(sourceDir.toAbsolutePath().toString());
-        task.setSourceType("ZIP");
-        task.setStatus("PENDING");
-        return task;
+    private static String blankToNull(String s) {
+        return s == null || s.trim().isEmpty() ? null : s.trim();
     }
 
     /**
@@ -598,10 +679,21 @@ public class ScanTaskService {
     }
 
     /**
-     * 获取任务详情
+     * 获取任务详情（附带快照是否仍在磁盘的现算标记）
      */
     public ScanTask getById(Long id) {
-        return scanTaskMapper.selectById(id);
+        ScanTask task = scanTaskMapper.selectById(id);
+        fillSnapshotExists(task);
+        return task;
+    }
+
+    /** 瞬态字段：快照目录是否仍在磁盘上（编辑弹窗据此展示源文件状态并决定能否原地重跑） */
+    private void fillSnapshotExists(ScanTask task) {
+        if (task == null) {
+            return;
+        }
+        task.setSnapshotExists(task.getSnapshotPath() != null && !task.getSnapshotPath().isEmpty()
+                && Files.exists(Paths.get(task.getSnapshotPath())));
     }
 
     /**

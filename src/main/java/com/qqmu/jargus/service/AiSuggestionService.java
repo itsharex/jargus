@@ -183,6 +183,18 @@ public class AiSuggestionService {
         return progress;
     }
 
+    /**
+     * 释放指定任务的深度评审重入锁（清空问题重跑前调用）：
+     * 旧 job 的 running 标记不清掉，会挡住重跑后扫描完成时的自动评审触发。
+     * 旧协调线程继续跑完也无害——对已删问题的写回是 0 行 no-op，不浪费 Token。
+     */
+    public void stopJob(Long taskId) {
+        Progress p = jobs.get(taskId);
+        if (p != null && p.isRunning()) {
+            p.setRunning(false);
+        }
+    }
+
     /** 解析逗号分隔的严重度过滤，仅接受合法的五级枚举名；返回空集 = 不过滤 */
     private Set<String> parseLevels(String levels) {
         Set<String> set = new LinkedHashSet<>();

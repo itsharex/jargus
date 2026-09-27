@@ -365,6 +365,84 @@
     </div>
 </div>
 
+<!--/* 修改任务弹窗：改任务名/项目名/扫描选项；源文件仍在时可保存并原地重跑 */-->
+<div class="modal" id="edit-task-modal" aria-hidden="true" role="dialog" aria-modal="true"
+     th:aria-label="#{scan.editTitle}">
+    <div class="modal-mask" data-close-modal="edit-task-modal"></div>
+    <div class="modal-dialog modal-lg">
+        <button type="button" class="modal-close" data-close-modal="edit-task-modal"
+                th:title="#{common.close}" th:aria-label="#{common.close}">
+            <svg class="ico"><use href="#x-lg"/></svg>
+        </button>
+        <div class="modal-head">
+            <span class="sec-tag" th:text="#{history.edit}">Edit</span>
+            <h3 th:text="#{scan.editTitle}">Edit task</h3>
+            <p class="muted small mono" id="edit-task-ref"></p>
+        </div>
+        <div class="alert alert-warn" id="edit-running-banner" hidden
+             th:text="#{scan.editRunning}">Task is running</div>
+        <form id="edit-task-form" autocomplete="off">
+            <div class="grid-2">
+                <div class="field">
+                    <label for="edit-task-name" th:text="#{scan.taskName}">Task name</label>
+                    <input type="text" class="input" id="edit-task-name" required>
+                </div>
+                <div class="field">
+                    <label for="edit-project-name" th:text="#{scan.projectName}">Project name</label>
+                    <input type="text" class="input" id="edit-project-name">
+                </div>
+            </div>
+            <div class="sec-tag" style="margin-top:10px;" th:text="#{scan.options}">Scan options</div>
+            <div class="grid-2" style="margin-top:10px;">
+                <div class="field">
+                    <label class="switch">
+                        <input type="checkbox" id="edit-opt-skip">
+                        <span class="track"></span>
+                        <span class="switch-text" th:text="#{scan.opt.skipUnitTest}">Skip unit test</span>
+                    </label>
+                    <div class="field-hint" id="edit-skip-hint" hidden
+                         th:text="#{scan.opt.skipPasteHint}">Always skipped for pasted code</div>
+                </div>
+                <div class="field">
+                    <label class="switch">
+                        <input type="checkbox" id="edit-opt-include">
+                        <span class="track"></span>
+                        <span class="switch-text" th:text="#{scan.opt.includeTestCode}">Include test code</span>
+                    </label>
+                </div>
+                <div class="field">
+                    <label class="switch">
+                        <input type="checkbox" id="edit-opt-ai">
+                        <span class="track"></span>
+                        <span class="switch-text" th:text="#{scan.opt.enableAiReview}">Enable AI review</span>
+                    </label>
+                </div>
+                <div class="field">
+                    <label class="switch">
+                        <input type="checkbox" id="edit-opt-notify">
+                        <span class="track"></span>
+                        <span class="switch-text" th:text="#{scan.opt.notify}">Email notification</span>
+                    </label>
+                </div>
+            </div>
+            <div class="field" id="edit-notify-field" hidden style="max-width:420px; margin-top:4px;">
+                <label th:text="#{mail.opt.recipients}">Recipients</label>
+                <div id="edit-notify-pick"></div>
+            </div>
+            <div class="field" style="margin-top:4px;">
+                <label th:text="#{scan.editSnapshot}">Code snapshot</label>
+                <div class="small" id="edit-snapshot-hint"></div>
+                <div class="field-hint" th:text="#{scan.editHint}">Options apply on rerun</div>
+            </div>
+            <div class="form-actions">
+                <button type="button" class="btn btn-ghost" data-close-modal="edit-task-modal" th:text="#{common.cancel}">Cancel</button>
+                <button type="button" class="btn btn-ghost" id="edit-rerun-btn" th:text="#{scan.editSaveRerun}">Save &amp; rerun</button>
+                <button type="submit" class="btn btn-primary" th:text="#{scan.editSave}">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script th:inline="javascript">
     /* 暴露给 app.js / 页面脚本使用的少量文案 */
     window.JargusMessages = {
@@ -378,6 +456,12 @@
         'common.confirmTitle': /*[[#{common.confirmTitle}]]*/ '',
         'scan.fileRequired': /*[[#{scan.fileRequired}]]*/ '',
         'scan.rescanOk': /*[[#{scan.rescanOk}]]*/ '',
+        'scan.editSnapshotOk': /*[[#{scan.editSnapshotOk}]]*/ '',
+        'scan.editSnapshotMissing': /*[[#{scan.editSnapshotMissing}]]*/ '',
+        'scan.editRerunConfirm': /*[[#{scan.editRerunConfirm}]]*/ '',
+        'scan.editRerunOk': /*[[#{scan.editRerunOk}]]*/ '',
+        'scan.editRerunDisabled': /*[[#{scan.editRerunDisabled}]]*/ '',
+        'scan.editNameRequired': /*[[#{scan.editNameRequired}]]*/ '',
         'scan.code.placeholder': /*[[#{scan.code.placeholder}]]*/ '',
         'cp.mismatch': /*[[#{cp.mismatch}]]*/ '',
         'cp.success': /*[[#{cp.success}]]*/ '',
@@ -489,6 +573,131 @@
             }).finally(function () {
                 submitBtn.disabled = false;
             });
+        });
+    })();
+</script>
+<script>
+    /* 修改任务：任意页面上带 data-edit-id 的按钮打开弹窗，改名称/扫描选项，
+       可仅保存，或保存后原地重跑（复用现有快照，任务 id 不变） */
+    (function () {
+        var UI = window.JargusUI;
+        var MODAL = 'edit-task-modal';
+        var form = document.getElementById('edit-task-form');
+        if (!form) return;
+        var taskId = null;
+        var pasteTask = false;
+        var snapshotOk = false;
+        var readOnly = false;
+
+        var optNotify = document.getElementById('edit-opt-notify');
+        var notifyField = document.getElementById('edit-notify-field');
+        var notifyMs = UI.multiSelect(document.getElementById('edit-notify-pick'));
+        var rerunBtn = document.getElementById('edit-rerun-btn');
+        var saveBtn = form.querySelector('[type=submit]');
+
+        optNotify.addEventListener('change', function () {
+            notifyField.hidden = !optNotify.checked;
+        });
+
+        function refreshState() {
+            ['edit-task-name', 'edit-project-name', 'edit-opt-include', 'edit-opt-ai', 'edit-opt-notify']
+                .forEach(function (id) { document.getElementById(id).disabled = readOnly; });
+            // PASTE 任务无单测可跑：跳过单测开关恒禁用（服务端同样强制）
+            document.getElementById('edit-opt-skip').disabled = readOnly || pasteTask;
+            document.getElementById('edit-running-banner').hidden = !readOnly;
+            saveBtn.disabled = readOnly;
+            rerunBtn.disabled = readOnly || !snapshotOk;
+            rerunBtn.title = snapshotOk ? '' : UI.t('scan.editRerunDisabled');
+        }
+
+        document.addEventListener('click', function (e) {
+            var btn = e.target.closest('[data-edit-id]');
+            if (!btn) return;
+            taskId = btn.getAttribute('data-edit-id');
+            Promise.all([
+                UI.api.get('/api/scans/' + taskId),
+                UI.api.get('/api/mail/recipients/options').catch(function () { return []; })
+            ]).then(function (res) {
+                var t = res[0] || {};
+                document.getElementById('edit-task-ref').textContent =
+                    (t.taskName || btn.getAttribute('data-edit-name') || '') + '  #' + taskId;
+                document.getElementById('edit-task-name').value = t.taskName || '';
+                document.getElementById('edit-project-name').value = t.projectName || '';
+                pasteTask = t.sourceType === 'PASTE';
+                document.getElementById('edit-opt-skip').checked = pasteTask ? true : !!t.skipUnitTest;
+                document.getElementById('edit-skip-hint').hidden = !pasteTask;
+                document.getElementById('edit-opt-include').checked = !!t.includeTestCode;
+                document.getElementById('edit-opt-ai').checked = !!t.enableAiReview;
+                optNotify.checked = !!t.notifyEnabled;
+                notifyField.hidden = !optNotify.checked;
+                // multiSelect 契约：setOptions 先于 set
+                notifyMs.setOptions(res[1] || []);
+                notifyMs.set(t.notifyRecipientIds || '');
+                snapshotOk = t.snapshotExists === true;
+                readOnly = t.status === 'PENDING' || t.status === 'RUNNING';
+                document.getElementById('edit-snapshot-hint').innerHTML = snapshotOk
+                    ? '<span class="badge badge-ok">' + UI.esc(UI.t('scan.editSnapshotOk')) + '</span>'
+                        + ' <span class="muted small mono">' + UI.esc(t.snapshotPath || '') + '</span>'
+                    : '<span class="badge badge-danger">' + UI.esc(UI.t('scan.editSnapshotMissing')) + '</span>';
+                refreshState();
+                UI.openModal(MODAL);
+            }).catch(function (err) {
+                UI.toast(String(err.message || err), 'danger');
+            });
+        });
+
+        function collectBody() {
+            return {
+                taskName: document.getElementById('edit-task-name').value.trim(),
+                projectName: document.getElementById('edit-project-name').value.trim(),
+                skipUnitTest: pasteTask ? true : document.getElementById('edit-opt-skip').checked,
+                includeTestCode: document.getElementById('edit-opt-include').checked,
+                enableAiReview: document.getElementById('edit-opt-ai').checked,
+                notifyEnabled: optNotify.checked,
+                notifyRecipientIds: optNotify.checked ? notifyMs.get() : ''
+            };
+        }
+
+        function doSave(rerun) {
+            var body = collectBody();
+            if (!body.taskName) {
+                UI.toast(UI.t('scan.editNameRequired'), 'warn');
+                return;
+            }
+            var proceed = rerun
+                ? UI.confirm(UI.t('scan.editRerunConfirm'), { danger: true })
+                : Promise.resolve(true);
+            proceed.then(function (ok) {
+                if (!ok) return;
+                saveBtn.disabled = true;
+                rerunBtn.disabled = true;
+                // 保存与重跑串行：executeScan 从库重读任务，PUT 先落库新选项才能在重跑中生效
+                return UI.api.put('/api/scans/' + taskId, body).then(function () {
+                    if (!rerun) {
+                        UI.closeModal(MODAL);
+                        UI.toast(UI.t('common.saved'), 'ok');
+                        setTimeout(function () { location.reload(); }, 600);
+                        return;
+                    }
+                    return UI.api.post('/api/scans/' + taskId + '/rerun').then(function () {
+                        UI.closeModal(MODAL);
+                        UI.toast(UI.t('scan.editRerunOk'), 'ok');
+                        setTimeout(function () { location.reload(); }, 900);
+                    });
+                });
+            }).catch(function (err) {
+                UI.toast(String(err.message || err), 'danger');
+            }).finally(function () {
+                refreshState();
+            });
+        }
+
+        form.addEventListener('submit', function (e) {
+            e.preventDefault();
+            doSave(false);
+        });
+        rerunBtn.addEventListener('click', function () {
+            doSave(true);
         });
     })();
 </script>

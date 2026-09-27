@@ -1,6 +1,7 @@
 package com.qqmu.jargus.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -94,6 +95,10 @@ public class ScanTask {
 
     /** 源码快照路径 */
     private String snapshotPath;
+
+    /** 源码快照是否仍在磁盘上（瞬态字段，查询详情时现算，编辑弹窗据此决定能否原地重跑） */
+    @TableField(exist = false)
+    private Boolean snapshotExists;
 
     /** 报告路径 */
     private String reportPath;
