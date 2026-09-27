@@ -2,193 +2,110 @@
 
 [中文](README.md) | [English](README_EN.md)
 
-> 百目所视，无所遁形。开箱即用的 Java 代码质量评审平台：本地静态分析引擎 + 可选 AI 语义评审 + SonarQube 式五级评分与质量门禁 + CI/CD 全链路联动 + 扫描报告邮件推送。
+> 开箱即用的 Java 代码质量评审平台：本地静态分析引擎 + 可选 AI 深度评审 + SonarQube 式五级评分与质量门禁 + CI/CD 全链路联动 + 扫描报告邮件推送。
 > 单个 JAR / 单个 Docker 镜像交付，内嵌数据库零外部依赖，完全离线可用，界面、规则、报告原生中文。
-
----
 
 ## 📖 开发背景
 
-中小团队做 Java 代码质量管控，常见方案各有明显痛点：
+- **SonarQube 太重**：独立服务器 + 数据库 + 专人运维，社区版功能受限、中文支持差；
+- **PMD / SpotBugs / Checkstyle 只是"问题清单"**：无评分、门禁、可视化报告与治理机制；
+- **AI 编码助手各自为战**：模型无法统一管理，也不与静态分析结果打通；
+- **国内环境额外诉求**：内网隔离、信创数据库、国产大模型、中文汇报材料。
 
-- **SonarQube 等平台太重**：需要独立服务器、数据库与多个后台组件，通常要专人运维；社区版功能受限，分支分析、PDF 报告、部分安全规则需商业授权；中文支持差。
-- **PMD / SpotBugs / Checkstyle 只是"问题清单"**：命令行或 IDE 插件形态，没有评分体系、质量门禁、可视化报告与团队治理机制，非技术角色看不懂。
-- **AI 编码助手各自为战**：每个工具单独配 API，无法统一管理多家大模型，也不与静态分析结果打通。
-- **国内环境有额外诉求**：内网物理隔离、信创数据库（达梦 / 人大金仓 / openGauss）、国产大模型、中文汇报材料。
+JArgus 据此以**一个 JAR / 一个容器**交付「扫描 → 评分 → 门禁 → 报告 → CI 阻断 → 邮件推送」完整闭环：内嵌 H2 开箱即用、19 个检查器、可选接入大模型、全流程中文。
 
-为此打造了百目 JArgus——**一个 JAR / 一个容器**即可跑通「扫描 → 评分 → 门禁 → 报告 → CI 阻断 → 邮件推送」完整闭环：内嵌 H2 数据库开箱即用；19 个检查器覆盖安全、缺陷、风格、架构、并发、依赖六大质量域；联网时可选接入多家大模型做 AI 深度评审；评分、门禁、技术债、报告全流程中文化。
+## ✨ 核心特性
 
-## ✨ 项目介绍
-
-**多种接入方式** — 上传 ZIP 压缩包、直接粘贴代码；CI 场景自动 Git 克隆（GitHub / GitLab / Gitee / 自建平台，支持私有仓库凭据）；自动检测 JDK 版本、构建工具、框架与依赖树；代码快照留存，问题可回溯到带行号高亮的源码上下文。
-
-**本地静态分析引擎** — 完全离线，19 个内置检查器覆盖六大质量域：
-
-| 质量域 | 覆盖内容 |
-|--------|----------|
-| 缺陷 | 编译诊断、空指针风险、资源泄露、异常处理（空 catch 等） |
-| 安全（SAST） | SQL 注入、命令注入、不安全反序列化、硬编码密钥、弱加密、弱随机数、XXE、SSRF、路径穿越 |
-| 架构约束 | 控制器跨层直连 DAO、下层反向依赖上层、实体泄漏到接口层 |
-| 并发 | 单例共享可变状态、静态 SimpleDateFormat、双重检查锁缺 volatile |
-| 风格 / 冗余 | 命名规范、魔法数字、通配符导入、超长行、TODO 注释、未使用方法、重复代码块（CPD 式 Token 指纹，自动排除 getter/setter 等样板，误报少） |
-| 依赖漏洞 | 解析 pom.xml / build.gradle，与内置 CVE 漏洞库比对（可选 OSV 在线增强） |
-| 质量 / 性能 / 框架 | 圈复杂度、方法/文件长度、性能问题、Spring 最佳实践 |
-
-**AI 深度评审（可选，不配 AI 也能完整使用）** — OpenAI 兼容 / Anthropic 双协议，内置 12 个厂商模板（阿里百炼、火山方舟、DeepSeek、Kimi、智谱、百度千帆、Gemini、Claude、Ollama / vLLM / LocalAI 本地私有部署等），API Key AES 加密存储；单条问题「AI 增强建议」（问题分析 / 修复方案 / 修复代码三段式），也可一键批量深度评审，进度实时可视。
-
-**五级评分与质量门禁（对标 SonarQube）** — 阻断 BLOCKER（-25）/ 严重 CRITICAL（-15）/ 主要 MAJOR（-5）/ 次要 MINOR（-1）/ 提示 INFO（0 分仅展示）；评分 = 100 − Σ(数量 × 扣分)，评级 优秀 / 良好 / 一般 / 较差；门禁 = 阻断清零（可配上限）+ 评分达线；**每级扣分、通过线、评级分界均可页面自定义，保存即时生效，无需重启重扫**；附技术债估算（按规则目录折算修复分钟数）。
-
-**问题治理** — 同文件同规则问题自动聚合为一条，不刷屏；行级忽略 + 规则级忽略（按规则码 / 文件路径 / glob / 行号），忽略原因留痕；检查器启停与规则阈值页面可配。
-
-**报告与邮件推送** — HTML / PDF 中文报告一键导出（内嵌中文字体，含评分、门禁结论、分类统计与逐条建议）；多 SMTP 发件配置（SSL / STARTTLS、一键测试发信、授权码 AES 加密）与收件人管理；扫描或 CI 触发器勾选「邮件通知」后，扫描完成自动推送 **HTML 摘要正文 + PDF 报告附件**，失败也发通知，扫描历史显示送达状态。
-
-**CI/CD 集成** — Webhook 触发扫描（GitHub / GitLab / Gitee / 通用，按平台约定自动校验 HMAC 签名），完成后自动回写 commit status 与 MR/PR 评论（评分 + 门禁 + Top 问题），流水线按门禁结论阻断合并；访问令牌管理、触发记录追溯。详见 [CI/CD 集成指南](#-cicd-集成指南)。
-
-**认证与安全** — JWT 本地账号 + 远端 OAuth2 单点登录（对接企业 OA），管理员 / 只读双角色；数据库密码、API Key、仓库令牌、SMTP 授权码等敏感配置全部 AES 加密落库；SQL 全参数化，ZIP 解压含 Zip Slip 防护。
-
-**界面与国际化** — Thymeleaf 服务端渲染，无 Vue / npm / Node 构建链，零 CDN 全本地化资源（内网可用）；中英双语切换、深色 / 浅色主题、响应式布局（PC / 平板 / 手机）。
-
-**多数据库支持** — 覆盖 18 类数据库：H2（内嵌默认，零安装），MySQL / MariaDB / TiDB / OceanBase / GBase 8a，PostgreSQL / openGauss / 人大金仓 KingBase / 瀚高 HighGo / 海量 Vastbase，Oracle / 达梦 DM / 崖山 YashanDB，SQL Server / DB2（仅连接测试）/ GBase 8s，神通 Oscar（上传驱动）及任意自定义库；Maven Central 可得的驱动全部随包内置（单 JAR 约 86MB，驱动增量约 14MB）；切换数据库真实生效，重启自动恢复上次活库、目标库不可用时显著告警并回退内置 H2；可视化自动建表迁移、连通性测试。其中达梦 / 金仓 / 瀚高 / Vastbase / 崖山 / GBase / 神通无公开测试镜像，驱动装载与建表脚本经人工核验（未实测），MySQL / MariaDB / PostgreSQL / openGauss / OceanBase / SQL Server 已真机全链路验证。
+- **多种接入方式**：ZIP 上传、代码粘贴、CI 自动 Git 克隆（GitHub / GitLab / Gitee / 自建平台，支持私有仓库凭据）；代码快照留存，问题可回溯到带行号高亮的源码上下文。
+- **本地静态分析**：完全离线，19 个检查器覆盖六大质量域——缺陷（空指针 / 资源泄露 / 异常处理）、安全（SQL 注入 / 命令注入 / 反序列化 / 硬编码密钥 / XXE / SSRF 等）、架构分层、并发、风格冗余（含 CPD 式重复代码）、依赖 CVE 漏洞。
+- **AI 深度评审（可选）**：OpenAI 兼容 / Anthropic 双协议，内置 12 个厂商模板（百炼 / 方舟 / DeepSeek / Kimi / 智谱 / 千帆 / Gemini / Claude / Ollama 等），API Key AES 加密；单条问题「AI 增强建议」（问题分析 / 修复方案 / 修复代码），支持批量深度评审与实时进度。
+- **五级评分与质量门禁**：BLOCKER / CRITICAL / MAJOR / MINOR / INFO 五级，每级扣分、通过线、评级分界页面自定义、保存即时生效；附技术债估算。
+- **问题治理**：同文件同规则问题自动聚合；行级 / 规则级忽略并留痕；检查器启停与规则阈值页面可配。
+- **报告与邮件推送**：HTML / PDF 中文报告一键导出（内嵌中文字体）；多 SMTP 发件配置（SSL / STARTTLS、测试发信、授权码 AES 加密）与收件人管理；扫描或 CI 触发器勾选「邮件通知」后，扫描完成自动推送 **HTML 摘要正文 + PDF 报告附件**，失败也发通知，送达状态在扫描历史可见。
+- **CI/CD 集成**：Webhook 触发扫描（按平台约定校验 HMAC 签名），完成后自动回写 commit status 与 MR/PR 评论，流水线按门禁结论阻断合并；详见下文指南。
+- **认证与安全**：JWT 本地账号 + 可选 OAuth2 单点登录，管理员 / 只读双角色；数据库密码、API Key、仓库令牌、SMTP 授权码全部 AES 加密落库；SQL 全参数化，ZIP 解压含 Zip Slip 防护。
+- **界面与国际化**：Thymeleaf 服务端渲染，无 Vue / npm 构建链，零 CDN；中英双语、深色 / 浅色主题、响应式布局。
+- **多数据库**：内嵌 H2 默认零安装，另支持 MySQL / PostgreSQL / Oracle / SQL Server / 达梦 / 金仓 / openGauss / OceanBase 等 18 类数据库，驱动随包内置，页面可视化切换与自动建表迁移。
 
 ## 🧰 技术栈
 
-| 层次 | 技术选型 |
-|------|----------|
-| 后端框架 | Spring Boot 3.2.5 · Java 17（Web / AOP / Validation / Cache / Actuator） |
-| 持久层 | MyBatis-Plus 3.5.5 · H2 2.2（内嵌默认）· 17 种数据库驱动内置（MySQL / PostgreSQL / Oracle / SQL Server / DB2 / 达梦 / 金仓 / openGauss / 瀚高 / Vastbase / 崖山 / GBase / OceanBase 等）· 动态多数据源（多方言分页 / DDL / 增量迁移，真实切换 + 重启恢复） |
-| 静态分析 | JavaParser 3.25（AST + 符号求解）· ASM 9.6（字节码）· 自研 CPD 式重复代码指纹 |
-| AI 接入 | Spring WebFlux HTTP 客户端 · OpenAI 兼容 / Anthropic 双协议适配层 |
-| 报告与邮件 | OpenPDF 1.3（矢量中文 PDF）· Thymeleaf HTML 报告 · Spring Mail（SMTP / SSL / STARTTLS） |
-| 版本控制 | JGit 6.8（仓库克隆） |
-| 安全 | JWT · spring-security-crypto（BCrypt）· AES 配置加密 · OAuth2 远端认证 |
-| 前端 | Thymeleaf SSR · 原生 JavaScript · CSS 变量设计令牌 · 内联 SVG 图标精灵 · 零 CDN |
-| 部署 | 单 JAR · Docker 多阶段构建（内置中文字体、非 root 运行、HEALTHCHECK）· docker compose |
+| 层次 | 选型 |
+|------|------|
+| 后端 | Spring Boot 3.2.5 · Java 17 · MyBatis-Plus 3.5.5 · H2 内嵌 + 17 种驱动内置 · 动态多数据源 |
+| 静态分析 | JavaParser 3.25（AST + 符号求解）· ASM 9.6 · 自研 CPD 式重复代码指纹 |
+| AI 接入 | OpenAI 兼容 / Anthropic 双协议适配层 |
+| 报告与邮件 | OpenPDF（矢量中文 PDF）· Thymeleaf HTML 报告 · Spring Mail |
+| 安全 | JWT · BCrypt · AES 配置加密 · OAuth2 远端认证 |
+| 前端 | Thymeleaf SSR · 原生 JavaScript · 零 CDN |
+| 部署 | 单 JAR · Docker 多阶段（内置中文字体、非 root、HEALTHCHECK） |
 
 ## 🖼️ 效果预览
 
 截图均取自真实运行页面，图片资产位于仓库 [`images/`](images) 目录。
 
-### 总览与界面
-
-**仪表盘** — 任务统计、质量评分与技术债总览
-
-![仪表盘](images/jargus_kanban.png)
-
-**暗色主题** — 深色 / 浅色一键切换
-
-![暗色主题](images/jargus_kanban_anye.png)
-
-**英文界面** — 中 / 英双语
-
-![英文界面](images/jargus_kanban_en.png)
-
-### 扫描与治理
-
-**新建扫描** — ZIP 上传 / 代码粘贴，扫描选项与邮件通知
-
-![新建扫描](images/jargus_saomiao.png)
-
-**扫描历史** — 任务列表、状态流转与邮件送达状态
-
-![扫描历史](images/jargus_lishi.png)
-
-**扫描结果** — 五级问题分布、门禁结论与源码上下文
-
-![扫描结果](images/jargus_result.png)
-
-**问题详情与 AI 增强建议** — 单条问题的修复建议、源码上下文与 AI 增强建议（问题分析、修复方案、修复代码）
-
-![问题详情与 AI 增强建议](images/jargus_result_ai.png)
-
-**导出报表** — 导出的 HTML 报告：评分、门禁结论、修复建议与 AI 增强建议
-
-![导出报表](images/jargus_baobiao.png)
-
-**检查器配置** — 检查器启停与参数调整
-
-![检查器配置](images/jargus_jianchaqi.png)
-
-**评审规则** — 规则默认等级与维护
-
-![评审规则](images/jargus_guize.png)
-
-**忽略规则** — 路径与规则级忽略配置
-
-![忽略规则](images/jargus_hulve.png)
-
-**质量门禁** — 阈值配置与门禁判定
-
-![质量门禁](images/jargus_menjin.png)
-
-### AI 与邮件
-
-**AI 厂商配置** — 内置厂商模板与双协议接入
-
-![AI 厂商配置](images/jargus_ai.png)
-
-**发件配置** — 多 SMTP 发件邮箱，同一时间启用一个，支持测试发信
-
-![发件配置](images/jargus_fajianpeizhi.png)
-
-**邮件收件人** — 通知收件人管理
-
-![邮件收件人](images/jargus_shoujianren.png)
-
-### CI/CD 与系统管理
-
-**CI/CD 触发器** — 触发器与访问令牌管理
-
-![CI/CD 触发器](images/jargus_cicd.png)
-
-**新建触发器** — 平台、分支过滤、扫描行为与发信开关
-
-![新建触发器](images/jargus_cicd_add.png)
-
-**触发扫描记录** — 每次触发的状态流转追溯
-
-![触发扫描记录](images/jargus_cicd_jilu.png)
-
-**数据库配置** — 内嵌元数据与动态外接数据源
-
-![数据库配置](images/jargus_db.png)
-
-**远端认证** — 对接企业 OA / 统一登录
-
-![远端认证](images/jargus_oa.png)
-
-**新增远端认证** — OAuth2 认证源配置
-
-![新增远端认证](images/jargus_oa_add.png)
-
-**系统信息** — 版本、仓库地址与联系方式
-
-![系统信息](images/jargus_xitongxinxi.png)
+<table>
+  <tr>
+    <td width="33%" align="center"><img src="images/jargus_kanban.png" width="100%"><br><sub>仪表盘</sub></td>
+    <td width="33%" align="center"><img src="images/jargus_kanban_anye.png" width="100%"><br><sub>暗色主题</sub></td>
+    <td width="33%" align="center"><img src="images/jargus_kanban_en.png" width="100%"><br><sub>英文界面</sub></td>
+  </tr>
+  <tr>
+    <td width="33%" align="center"><img src="images/jargus_saomiao.png" width="100%"><br><sub>新建扫描</sub></td>
+    <td width="33%" align="center"><img src="images/jargus_lishi.png" width="100%"><br><sub>扫描历史</sub></td>
+    <td width="33%" align="center"><img src="images/jargus_result.png" width="100%"><br><sub>扫描结果</sub></td>
+  </tr>
+  <tr>
+    <td width="33%" align="center"><img src="images/jargus_result_ai.png" width="100%"><br><sub>问题详情与 AI 建议</sub></td>
+    <td width="33%" align="center"><img src="images/jargus_baobiao.png" width="100%"><br><sub>导出报表</sub></td>
+    <td width="33%" align="center"><img src="images/jargus_jianchaqi.png" width="100%"><br><sub>检查器配置</sub></td>
+  </tr>
+  <tr>
+    <td width="33%" align="center"><img src="images/jargus_guize.png" width="100%"><br><sub>评审规则</sub></td>
+    <td width="33%" align="center"><img src="images/jargus_hulve.png" width="100%"><br><sub>忽略规则</sub></td>
+    <td width="33%" align="center"><img src="images/jargus_menjin.png" width="100%"><br><sub>质量门禁</sub></td>
+  </tr>
+  <tr>
+    <td width="33%" align="center"><img src="images/jargus_ai.png" width="100%"><br><sub>AI 厂商配置</sub></td>
+    <td width="33%" align="center"><img src="images/jargus_fajianpeizhi.png" width="100%"><br><sub>发件配置</sub></td>
+    <td width="33%" align="center"><img src="images/jargus_shoujianren.png" width="100%"><br><sub>邮件收件人</sub></td>
+  </tr>
+  <tr>
+    <td width="33%" align="center"><img src="images/jargus_cicd.png" width="100%"><br><sub>CI/CD 触发器</sub></td>
+    <td width="33%" align="center"><img src="images/jargus_cicd_add.png" width="100%"><br><sub>新建触发器</sub></td>
+    <td width="33%" align="center"><img src="images/jargus_cicd_jilu.png" width="100%"><br><sub>触发扫描记录</sub></td>
+  </tr>
+  <tr>
+    <td width="33%" align="center"><img src="images/jargus_db.png" width="100%"><br><sub>数据库配置</sub></td>
+    <td width="33%" align="center"><img src="images/jargus_oa.png" width="100%"><br><sub>远端认证</sub></td>
+    <td width="33%" align="center"><img src="images/jargus_oa_add.png" width="100%"><br><sub>新增远端认证</sub></td>
+  </tr>
+  <tr>
+    <td width="33%" align="center"><img src="images/jargus_xitongxinxi.png" width="100%"><br><sub>系统信息</sub></td>
+    <td width="33%"></td>
+    <td width="33%"></td>
+  </tr>
+</table>
 
 ## 📊 功能对比
 
-与同类常用工具的功能差异（事实陈述）：
-
 | 维度 | **百目 JArgus** | SonarQube（社区版） | PMD / SpotBugs / Checkstyle | CodeQL |
-|------|----------------------|---------------------|------------------------------|--------|
-| 部署复杂度 | 单 JAR / 单容器，内嵌数据库，无外部服务依赖 | 服务器、数据库、计算引擎分离部署 | 仅 CLI / IDE 插件形态，无服务端界面 | 需编译 codebase 并使用专用 CLI；托管服务位于 GitHub |
-| 中文支持 | 界面 / 规则 / 建议 / 报告原生中文 | 官方以英文为主（社区有中文语言包） | 官方英文 | 官方英文 |
-| AI 语义评审 | 多厂商大模型（含国产与本地 Ollama），问题级修复建议 | 社区版不含（官方 AI 能力在付费 / 云服务） | 不含 | 不含（基于查询语言） |
-| 评分与质量门禁 | 五级评分，扣分值 / 阈值 / 评级分界页面自定义即时生效 | 有评分与质量配置档，规则严重度可自定义，评级模型遵循官方定义 | 仅问题清单，无评分 | 以查询结果为主，无内置评分 |
-| 重复代码检测 | CPD 式 Token 指纹，排除样板代码 | 内置 CPD（跨项目重复检测为付费功能） | PMD 含 CPD 组件；SpotBugs / Checkstyle 不含重复检测 | 无内置重复检测 |
-| 依赖漏洞（CVE） | 内置漏洞库 + 可选 OSV 在线增强 | 无内置漏洞库（可经第三方插件或付费能力接入） | 无内置漏洞库 | 无内置漏洞库（常配合 Dependabot） |
-| 架构分层检查 | 内置 | 相关能力由付费架构规则引擎提供 | 不含 | 需自写 QL 查询实现 |
-| CI/CD 集成 | Webhook 触发 + 状态回写 + MR/PR 评论（GitHub / GitLab / Gitee / 自建） | 支持，需插件与配置对接 | 需自行编写脚本 | 托管版限 GitHub 生态 |
-| 报告邮件推送 | 扫描完成自动发 HTML 摘要 + PDF 报告邮件 | 有告警通知，报告邮件需自行集成 | 不含 | 不含 |
-| 可视化报告 | 支持导出 HTML / PDF 中文报告 | 内置 Web 仪表盘，PDF 导出需插件或付费版 | 无报告界面 | 无报告界面 |
-| 离线 / 内网运行 | 全功能离线（AI 为可选增强） | 支持 | 支持 | 支持（CLI 本地运行） |
-| 信创数据库 | 达梦 / 人大金仓 / openGauss / 瀚高 / 海量 / 崖山 / GBase / OceanBase / 神通 驱动内置，可作运行库 | 官方支持 PostgreSQL / MySQL 等主流数据库 | 不适用（无服务端存储） | 不适用 |
-| 授权费用 | MIT 授权 | 社区版免费，企业版付费 | 免费开源 | 私有仓库使用需付费 GitHub Advanced Security |
+|------|------------------|---------------------|------------------------------|--------|
+| 部署 | 单 JAR / 单容器，内嵌数据库 | 服务器 / 数据库 / 计算引擎分离 | 仅 CLI / IDE 插件 | 专用 CLI，托管于 GitHub |
+| 中文 | 界面 / 规则 / 报告原生中文 | 英文为主 | 英文 | 英文 |
+| AI 评审 | 多厂商大模型 + 问题级修复建议 | 社区版不含 | 不含 | 不含 |
+| 评分与门禁 | 五级评分，扣分 / 阈值页面自定义即时生效 | 有评分配置，评级模型官方定义 | 仅问题清单 | 无内置评分 |
+| 重复代码 | CPD 式指纹，排除样板代码 | 内置 CPD（跨项目付费） | PMD 含 CPD | 无 |
+| 依赖漏洞 | 内置 CVE 库 + 可选 OSV 增强 | 需插件 / 付费 | 无 | 无 |
+| 架构分层 | 内置 | 付费规则引擎 | 不含 | 需自写 QL |
+| CI/CD | Webhook + 状态回写 + MR/PR 评论 | 需插件对接 | 需自写脚本 | 限 GitHub 生态 |
+| 报告邮件 | 自动发 HTML 摘要 + PDF 附件 | 需自行集成 | 不含 | 不含 |
+| 信创数据库 | 达梦 / 金仓 / openGauss 等驱动内置 | 仅主流数据库 | 不适用 | 不适用 |
+| 授权 | MIT | 社区免费、企业付费 | 免费 | 私有仓库需付费 GHAS |
 | 语言覆盖 | Java | 多语言 | Java 为主 | 多语言 |
-| 规则生态规模 | 内置规则聚焦 Java 常见问题 | 内置规则数百条 | 规则数百条（Java 向） | 标准查询库与公开查询仓库 |
 
-> **说明与免责**：以上对比基于 **2026 年 9 月** 各产品官方公开文档与社区 / 免费版本整理，仅描述功能差异供选型参考，不构成对任何产品或厂商的评价、背书或贬损；各产品迭代较快，最新能力以官方文档为准。如有疏漏或过时之处，欢迎提交 Issue / PR 指正，核实后即刻修正。
+> 对比基于 2026 年 9 月各产品官方公开文档整理，仅供选型参考，不构成对任何产品的评价或背书；如有疏漏欢迎 Issue / PR 指正。
 
-**适用场景**：上表差异决定选型取向——多语言混合仓库与长期趋势治理，SonarQube / CodeQL 的规则与历史分析覆盖更广；本项目的特点为单 JAR / 单容器部署（内嵌数据库）、中文原生、AI 可选增强、仅聚焦 Java，适用于中小 Java 团队、内网隔离环境、信创项目与教学演示。
+**适用场景**：多语言混合仓库与长期趋势治理选 SonarQube / CodeQL 覆盖更广；JArgus 以单 JAR 部署、中文原生、AI 可选、仅聚焦 Java 为特点，适合中小 Java 团队、内网隔离、信创项目与教学演示。
 
 ## 🚀 部署教程
 
@@ -208,12 +125,12 @@
 - Gitee Releases：<https://gitee.com/super_rgh/jargus/releases>
 
 ```bash
-java -jar jargus-2.0.0.jar
+java -jar jargus-2.0.2.jar
 ```
 
 - 首次启动自动在当前目录初始化内嵌 H2 数据库（`data/`）、扫描快照与报告（`work/`）、日志（`logs/`），无需外接数据库；
 - 访问 <http://localhost:8080>，默认账号 `admin / 123456`（登录后请尽快修改密码）；
-- 换端口：`java -jar jargus-2.0.0.jar --server.port=9090`；
+- 换端口：`java -jar jargus-2.0.2.jar --server.port=9090`；
 - 生产环境建议覆盖内置密钥：`--app.jwt-secret=<新JWT密钥> --app.crypto-key=<新AES密钥>`。
 
 ### 方式二：源码构建
@@ -252,9 +169,9 @@ docker compose logs -f     # 跟踪日志
 
 ```bash
 # 构建镜像（多阶段：Maven 打包 → JRE 运行时）
-./scripts/docker-build.sh 2.0.0
+./scripts/docker-build.sh 2.0.2
 # 国内网络环境可用镜像站加速构建：
-./scripts/docker-build-cn.sh 2.0.0
+./scripts/docker-build-cn.sh 2.0.2
 
 # 运行（数据卷持久化）
 docker run -d --name jargus \
@@ -266,7 +183,7 @@ docker run -d --name jargus \
   -e APP_JWT_SECRET="your-own-random-secret-at-least-32-chars" \
   -e APP_CRYPTO_KEY="your-16-char-key" \
   --restart unless-stopped \
-  jargus:2.0.0
+  jargus:2.0.2
 ```
 
 健康检查：`curl http://localhost:8080/actuator/health` → `{"status":"UP"}`
@@ -364,44 +281,9 @@ curl -X POST "<Webhook地址>/upload" \
 
 > 注意：方式 A 要求 Webhook 地址能被代码平台直接访问（内网部署需公网映射或内网穿透）；方式 B 的 ZIP 上传只要求 runner 能访问本服务，全内网环境亦可使用。
 
-## 📁 项目结构
+## 🤝 反馈
 
-```
-jargus/
-├── src/main/java/com/qqmu/jargus/
-│   ├── checker/         # 检查器框架与内置检查器（AST / 正则 / 扫描级）
-│   ├── config/          # 启动初始化、Bean 配置
-│   ├── controller/      # 页面控制器 + REST API
-│   ├── datasource/      # 动态多数据源与方言适配
-│   ├── dto/ entity/ mapper/   # 数据模型（MyBatis-Plus）
-│   ├── llm/             # 多厂商 LLM 协议适配层
-│   ├── security/        # JWT、角色切面、用户上下文
-│   ├── service/         # 扫描、评分门禁、AI 评审、报告、邮件通知、CI 回调等
-│   └── util/            # 工具类
-├── src/main/resources/
-│   ├── db/              # H2 / MySQL 双方言 DDL
-│   ├── i18n/            # 中英文消息包
-│   ├── security/        # 内置 CVE 漏洞库
-│   ├── templates/       # Thymeleaf 页面（19 个）
-│   ├── static/          # CSS / JS / 本地图标（零 CDN）
-│   └── application.yml
-├── samples/             # 示例坏代码（可直接粘贴体验）
-├── scripts/             # Docker 构建 / 运行脚本（含国内镜像站版）
-├── Dockerfile           # 多阶段构建
-└── docker-compose.yml
-```
-
-## 🤝 总结与反馈
-
-这个项目从"让中小团队用最低成本获得完整代码质量闭环"出发，做到了：**一个容器交付、零外部依赖、离线可用、中文原生、AI 可选增强、评分门禁可自定义、CI 全链路联动、报告邮件直达**。它还在持续演进，规则库、漏洞库、报告形态都会不断扩充。
-
-欢迎使用、欢迎 Star、欢迎提出建议与问题反馈：
-
-- 提交 Issue / Pull Request
-- **QQ：817094 / 2912167928**
-- **微信：hua47609**
-
-你的每一条反馈都会让它变得更好。
+欢迎 Issue / Pull Request；QQ：817094 / 2912167928；微信：hua47609。
 
 ## 📄 开源协议
 

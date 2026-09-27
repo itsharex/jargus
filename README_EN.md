@@ -2,241 +2,110 @@
 
 [中文](README.md) | [English](README_EN.md)
 
-> Hundred eyes, nothing escapes — an out-of-the-box Java code quality review platform: a local static analysis engine + optional AI semantic review + SonarQube-style five-grade scoring and quality gates + end-to-end CI/CD wiring + report delivery by email.
-> Shipped as a single JAR / single Docker image with an embedded database — zero external dependencies, fully offline capable, with first-class Chinese UI, rules and reports.
-
----
+> An out-of-the-box Java code quality review platform: local static analysis engine + optional AI deep review + SonarQube-style five-grade scoring & quality gates + end-to-end CI/CD wiring + email report delivery.
+> Shipped as a single JAR / single Docker image with an embedded database — zero external dependencies, fully offline capable, with native Chinese UI, rules and reports.
 
 ## 📖 Background
 
-Common code-quality solutions are painful for small and medium-sized teams:
+- **SonarQube is heavy**: dedicated server + database + ops effort; the community edition is feature-limited with poor Chinese support;
+- **PMD / SpotBugs / Checkstyle only produce "issue lists"**: no scoring, gates, visual reports or governance;
+- **AI coding assistants work in silos**: models cannot be managed centrally, nor are they integrated with static analysis results;
+- **Extra requirements in Chinese enterprises**: air-gapped intranets, domestic (Xinchuang) databases, domestic LLMs, Chinese reporting materials.
 
-- **SonarQube-style platforms are heavy**: they need a dedicated server, database and multiple backend components; the community edition has limited rules and features, advanced capabilities (branch analysis, PDF reports, some security rules) require commercial licensing, and Chinese support is poor.
-- **PMD / SpotBugs / Checkstyle only produce "issue lists"**: CLI or IDE plugins without scoring, quality gates, visual reports, or team-level ignore/governance — unreadable for non-technical stakeholders.
-- **AI coding assistants work in silos**: each tool needs its own API setup, multi-vendor LLMs cannot be managed centrally, and none of them integrate with static analysis results.
-- **Chinese enterprise environments have extra requirements**: air-gapped intranets, domestic databases (DM / Kingbase / openGauss), domestic LLMs, and Chinese reporting.
+JArgus therefore ships **one JAR / one container** delivering the full loop "scan → score → gate → report → CI blocking → email delivery": embedded H2 out of the box, 19 checkers, optional LLM integration, fully Chinese-native.
 
-This project is built as an **all-in-one review platform**: one JAR or one container runs everything, with an embedded H2 database out of the box; 19 checkers cover six quality domains — security, bugs, style, architecture, concurrency and dependencies; multiple LLM vendors can optionally be plugged in for AI deep review; scoring, gates, technical debt and reports are fully localized in Chinese.
+## ✨ Core Features
 
-## ✨ Overview
+- **Multiple ingestion methods**: ZIP upload, code paste, automatic Git clone in CI (GitHub / GitLab / Gitee / self-hosted platforms, private-repo credentials supported); code snapshots are retained so every issue traces back to source context with line numbers and highlighted problem lines.
+- **Local static analysis**: fully offline; 19 checkers covering six quality domains — bugs (null pointers / resource leaks / exception handling), security (SQL injection / command injection / deserialization / hardcoded secrets / XXE / SSRF, etc.), architecture layering, concurrency, style & redundancy (incl. CPD-style duplicate code), dependency CVE vulnerabilities.
+- **AI deep review (optional)**: OpenAI-compatible / Anthropic dual protocols with 12 built-in vendor templates (Bailian / Ark / DeepSeek / Kimi / Zhipu / Qianfan / Gemini / Claude / Ollama, etc.), API keys AES-encrypted; per-issue "AI enhanced suggestion" (analysis / fix plan / fix code), batch deep review with live progress.
+- **Five-grade scoring & quality gate**: BLOCKER / CRITICAL / MAJOR / MINOR / INFO; per-grade deductions, pass threshold and grade bands are customizable in the UI and take effect on save; technical debt estimation included.
+- **Issue governance**: same-file same-rule issues auto-merged; line-level / rule-level ignores with recorded reasons; checker toggles and rule thresholds configurable in the UI.
+- **Reports & email delivery**: one-click HTML / PDF Chinese report export (CJK fonts embedded); multiple SMTP sender configs (SSL / STARTTLS, test mail, AES-encrypted credentials) plus recipient management; tick "Email notification" on a scan or CI trigger and the finished report (**HTML summary body + PDF attachment**) is mailed automatically — failures are notified too, and delivery status shows up in scan history.
+- **CI/CD integration**: webhook-triggered scans (HMAC signatures verified per platform convention); commit status and MR/PR comment write-back on completion so pipelines block merges on the gate verdict; see the guide below.
+- **Auth & security**: JWT local accounts + optional OAuth2 SSO, admin / read-only roles; database passwords, API keys, repo tokens and SMTP credentials all AES-encrypted at rest; fully parameterized SQL, Zip Slip protection on archive extraction.
+- **UI & i18n**: Thymeleaf server-side rendering, no Vue / npm build chain, zero CDN; Chinese / English, dark / light themes, responsive layout.
+- **Multi-database**: embedded H2 by default with zero installation; also supports 18 database types — MySQL / PostgreSQL / Oracle / SQL Server / DM / Kingbase / openGauss / OceanBase, etc. — with drivers bundled, visual switching in the UI and automatic schema creation & migration.
 
-### Core Features
+## 🧰 Tech Stack
 
-**1. Multiple code ingestion methods**
-- Upload a ZIP archive or paste code snippets directly; in CI scenarios it clones Git repositories automatically (GitHub / GitLab / Gitee / self-hosted platforms, private credentials supported)
-- Automatic environment detection: JDK version, build tool, framework, dependency tree, root package layout; optional unit test execution
-- Code snapshots are retained so every issue can be traced back to its source context (line numbers + highlighted problem lines)
-
-**2. Local static analysis engine (fully offline, 19 built-in checkers)**
-
-| Quality domain | Coverage |
-|----------------|----------|
-| Bugs | Compilation diagnostics, null-pointer risks, resource leaks, exception handling (empty catch, etc.) |
-| Security (SAST) | SQL injection, command injection, insecure deserialization, hardcoded secrets, weak crypto, weak randomness, XXE, SSRF, path traversal |
-| Architecture | Controller-to-DAO layer skipping, reverse layer dependencies, entity leakage into API layers |
-| Concurrency | Shared mutable state in singletons, static SimpleDateFormat, double-checked locking without volatile |
-| Style / redundancy | Naming conventions, magic numbers, wildcard imports, long lines, TODO comments, unused methods, duplicate code blocks (CPD-style token fingerprinting that automatically excludes getters/setters and constructors — far fewer false positives) |
-| Dependency vulnerabilities | Parses pom.xml / build.gradle and matches against a built-in CVE advisory store (optional OSV online enrichment) |
-| Quality / performance / framework | Cyclomatic complexity, method/file length, performance issues, Spring best practices |
-
-**3. AI deep review (optional — everything works without it)**
-- Multi-vendor LLM support: OpenAI-compatible and Anthropic protocols, with 12 built-in vendor templates (Alibaba Bailian, Volcano Ark, DeepSeek, Kimi, Zhipu, Baidu Qianfan, Gemini, Claude, and local/private deployments via Ollama / vLLM / LocalAI). API keys are AES-encrypted at rest.
-- Per-issue "AI enhanced suggestion": analysis / fix plan / fix code, strictly scoped to the flagged lines
-- One-click "AI deep review" batch-enhances all remaining issues with live progress
-
-**4. Five-grade scoring & quality gate (SonarQube-style)**
-- Five severities: BLOCKER (−25) / CRITICAL (−15) / MAJOR (−5) / MINOR (−1) / INFO (0, informational)
-- Score = 100 − Σ(count × weight); grades Excellent / Good / Fair / Poor
-- Gate = blocker veto (limit configurable) + minimum score; **every weight, the pass threshold and the grade bands are customizable in the UI and take effect immediately — no restart, no rescan**
-- Technical debt estimation based on a per-rule remediation-time catalog
-
-**5. Issue governance**
-- Same-file same-rule issues are automatically merged into one row (all locations listed), no screen flooding
-- Line-level ignore + rule-level ignore (by rule code / file path / glob / line number), with reasons recorded
-- Checkers and rule thresholds can be toggled and tuned in the UI
-
-**6. Reports, email delivery & CI/CD**
-- One-click HTML / PDF export with embedded CJK fonts: score, gate verdict, category statistics, every issue with suggestions
-- Email management: multiple SMTP senders (SSL / STARTTLS, one-click test mail, AES-encrypted credentials) plus a recipient list; tick "Email notification" on a scan or CI trigger and the finished report (HTML summary body + PDF attachment) is mailed automatically — failures are notified too, and delivery status shows up in scan history
-- Webhook-triggered scans (GitHub / GitLab / Gitee / generic); on completion the platform writes back commit statuses and MR/PR comments (score + gate + top issues) so pipelines can block on the gate verdict
-- CI access token management and scan record traceability
-
-**7. Authentication & permissions**
-- JWT local accounts + remote OAuth2 SSO (enterprise OA), with admin / read-only roles
-- Database passwords, API keys and repository tokens are all AES-encrypted at rest
-
-**8. UI & i18n**
-- Thymeleaf server-side rendering — no Vue / npm / Node build chain, zero CDN, fully local assets (intranet friendly)
-- Chinese / English switching, dark / light themes, responsive layout (desktop / tablet / mobile)
-
-**9. Multi-database support**
-
-| Database | Notes |
-|----------|-------|
-| H2 (embedded) | Default, zero installation |
-| MySQL / PostgreSQL / Oracle | Drivers bundled |
-| DM / Kingbase / openGauss | Chinese domestic (Xinchuang) databases, drivers bundled |
-| Custom JDBC | Upload any driver JAR from the UI |
-
-Databases are switched visually in the UI with automatic schema creation/migration and connectivity testing.
-
-### Tech Stack
-
-| Layer | Technologies |
-|-------|--------------|
-| Backend | Spring Boot 3.2.5 · Java 17 (Web / AOP / Validation / Cache / Actuator) |
-| Persistence | MyBatis-Plus 3.5.5 · H2 2.2 (embedded default) · MySQL / PostgreSQL / Oracle / DM / Kingbase / openGauss drivers · dynamic multi-datasource |
-| Static analysis | JavaParser 3.25 (AST + symbol solving) · ASM 9.6 (bytecode) · custom CPD-style duplicate-code fingerprinting |
-| AI integration | Spring WebFlux HTTP client · OpenAI-compatible / Anthropic dual-protocol adapter |
-| Reports & email | OpenPDF 1.3 (vector CJK PDF) · Thymeleaf HTML reports · Spring Mail (SMTP / SSL / STARTTLS) |
-| Version control | JGit 6.8 (repository cloning) |
-| Security | JWT · spring-security-crypto (BCrypt) · AES config encryption · OAuth2 remote auth |
-| Frontend | Thymeleaf SSR · vanilla JavaScript · CSS-variable design tokens · inline SVG sprite · zero CDN |
-| Deployment | Single JAR · multi-stage Docker build (CJK fonts baked in, non-root, HEALTHCHECK) · docker compose |
+| Layer | Choices |
+|-------|---------|
+| Backend | Spring Boot 3.2.5 · Java 17 · MyBatis-Plus 3.5.5 · embedded H2 + 17 bundled drivers · dynamic multi-datasource |
+| Static analysis | JavaParser 3.25 (AST + symbol solving) · ASM 9.6 · custom CPD-style duplicate-code fingerprinting |
+| AI integration | OpenAI-compatible / Anthropic dual-protocol adapter |
+| Reports & email | OpenPDF (vector CJK PDF) · Thymeleaf HTML reports · Spring Mail |
+| Security | JWT · BCrypt · AES config encryption · OAuth2 remote auth |
+| Frontend | Thymeleaf SSR · vanilla JavaScript · zero CDN |
+| Deployment | Single JAR · multi-stage Docker (CJK fonts baked in, non-root, HEALTHCHECK) |
 
 ## 🖼️ Screenshots
 
 All screenshots are taken from real running pages; image assets live in the [`images/`](images) directory.
 
-### Overview & UI
-
-**Dashboard** — task stats, quality score and technical debt overview
-
-![Dashboard](images/jargus_kanban.png)
-
-**Dark Mode** — dark / light theme toggle
-
-![Dark Mode](images/jargus_kanban_anye.png)
-
-**English UI** — zh / en switch
-
-![English UI](images/jargus_kanban_en.png)
-
-### Scan & Governance
-
-**New Scan** — ZIP upload / code paste, scan options and email notification
-
-![New Scan](images/jargus_saomiao.png)
-
-**Scan History** — task list, status transitions and mail delivery state
-
-![Scan History](images/jargus_lishi.png)
-
-**Scan Result** — five-grade distribution, gate verdict and source context
-
-![Scan Result](images/jargus_result.png)
-
-**Issue Detail & AI Suggestion** — per-issue fix advice, source context and AI-enhanced suggestion (analysis, fix plan, patched code)
-
-![Issue Detail & AI Suggestion](images/jargus_result_ai.png)
-
-**Exported Report** — exported HTML report: score, gate verdict, fix suggestions and AI-enhanced advice
-
-![Exported Report](images/jargus_baobiao.png)
-
-**Checker Settings** — enable/disable checkers and tune parameters
-
-![Checker Settings](images/jargus_jianchaqi.png)
-
-**Review Rules** — default severity per rule
-
-![Review Rules](images/jargus_guize.png)
-
-**Ignore Rules** — path- and rule-level ignores
-
-![Ignore Rules](images/jargus_hulve.png)
-
-**Quality Gate** — thresholds and gate verdicts
-
-![Quality Gate](images/jargus_menjin.png)
-
-### AI & Email
-
-**AI Provider Settings** — built-in provider templates, dual-protocol access
-
-![AI Provider Settings](images/jargus_ai.png)
-
-**SMTP Senders** — multiple senders, one enabled at a time, test mail built in
-
-![SMTP Senders](images/jargus_fajianpeizhi.png)
-
-**Mail Recipients** — notification recipient management
-
-![Mail Recipients](images/jargus_shoujianren.png)
-
-### CI/CD & Administration
-
-**CI/CD Triggers** — trigger and access-token management
-
-![CI/CD Triggers](images/jargus_cicd.png)
-
-**New Trigger** — platform, branch filter, scan-behaviour and email toggles
-
-![New Trigger](images/jargus_cicd_add.png)
-
-**Trigger Scan Records** — status trace of every trigger run
-
-![Trigger Scan Records](images/jargus_cicd_jilu.png)
-
-**Database Settings** — embedded metadata and dynamic external datasources
-
-![Database Settings](images/jargus_db.png)
-
-**Remote Auth** — enterprise OA / SSO hookup
-
-![Remote Auth](images/jargus_oa.png)
-
-**New Remote Auth** — OAuth2 provider configuration
-
-![New Remote Auth](images/jargus_oa_add.png)
-
-**System Info** — version, repository links and contact
-
-![System Info](images/jargus_xitongxinxi.png)
-
-## ⚡ Instant Deployment (no source code needed)
-
-No clone, no Maven — download the **runnable Jar** attached to a Release (the very same artifact is published on GitHub and Gitee):
-
-- GitHub Releases: <https://github.com/vfaner/jargus/releases>
-- Gitee Releases: <https://gitee.com/super_rgh/jargus/releases>
-
-All you need is **JDK / JRE 17+**:
-
-```bash
-java -jar jargus-2.0.0.jar
-```
-
-- First run auto-initializes the embedded H2 database (`data/`), scan snapshots & reports (`work/`) and logs (`logs/`) in the working directory — no external database required
-- Open <http://localhost:8080>, default account `admin / 123456` (change the password after first login)
-- Custom port: `java -jar jargus-2.0.0.jar --server.port=9090`
-- Override the built-in secrets in production: `--app.jwt-secret=<new-jwt-secret> --app.crypto-key=<new-aes-key>`
-
-For source builds and Docker, see [Deployment](#-deployment) below.
+<table>
+  <tr>
+    <td width="33%" align="center"><img src="images/jargus_kanban.png" width="100%"><br><sub>Dashboard</sub></td>
+    <td width="33%" align="center"><img src="images/jargus_kanban_anye.png" width="100%"><br><sub>Dark theme</sub></td>
+    <td width="33%" align="center"><img src="images/jargus_kanban_en.png" width="100%"><br><sub>English UI</sub></td>
+  </tr>
+  <tr>
+    <td width="33%" align="center"><img src="images/jargus_saomiao.png" width="100%"><br><sub>New scan</sub></td>
+    <td width="33%" align="center"><img src="images/jargus_lishi.png" width="100%"><br><sub>Scan history</sub></td>
+    <td width="33%" align="center"><img src="images/jargus_result.png" width="100%"><br><sub>Scan result</sub></td>
+  </tr>
+  <tr>
+    <td width="33%" align="center"><img src="images/jargus_result_ai.png" width="100%"><br><sub>Issue detail & AI suggestion</sub></td>
+    <td width="33%" align="center"><img src="images/jargus_baobiao.png" width="100%"><br><sub>Exported report</sub></td>
+    <td width="33%" align="center"><img src="images/jargus_jianchaqi.png" width="100%"><br><sub>Checker settings</sub></td>
+  </tr>
+  <tr>
+    <td width="33%" align="center"><img src="images/jargus_guize.png" width="100%"><br><sub>Review rules</sub></td>
+    <td width="33%" align="center"><img src="images/jargus_hulve.png" width="100%"><br><sub>Ignore rules</sub></td>
+    <td width="33%" align="center"><img src="images/jargus_menjin.png" width="100%"><br><sub>Quality gate</sub></td>
+  </tr>
+  <tr>
+    <td width="33%" align="center"><img src="images/jargus_ai.png" width="100%"><br><sub>AI provider settings</sub></td>
+    <td width="33%" align="center"><img src="images/jargus_fajianpeizhi.png" width="100%"><br><sub>SMTP senders</sub></td>
+    <td width="33%" align="center"><img src="images/jargus_shoujianren.png" width="100%"><br><sub>Mail recipients</sub></td>
+  </tr>
+  <tr>
+    <td width="33%" align="center"><img src="images/jargus_cicd.png" width="100%"><br><sub>CI/CD triggers</sub></td>
+    <td width="33%" align="center"><img src="images/jargus_cicd_add.png" width="100%"><br><sub>New trigger</sub></td>
+    <td width="33%" align="center"><img src="images/jargus_cicd_jilu.png" width="100%"><br><sub>Trigger scan records</sub></td>
+  </tr>
+  <tr>
+    <td width="33%" align="center"><img src="images/jargus_db.png" width="100%"><br><sub>Database settings</sub></td>
+    <td width="33%" align="center"><img src="images/jargus_oa.png" width="100%"><br><sub>Remote auth</sub></td>
+    <td width="33%" align="center"><img src="images/jargus_oa_add.png" width="100%"><br><sub>New remote auth</sub></td>
+  </tr>
+  <tr>
+    <td width="33%" align="center"><img src="images/jargus_xitongxinxi.png" width="100%"><br><sub>System info</sub></td>
+    <td width="33%"></td>
+    <td width="33%"></td>
+  </tr>
+</table>
 
 ## 📊 Feature Comparison
 
 | Dimension | **JArgus** | SonarQube (Community) | PMD / SpotBugs / Checkstyle | CodeQL |
-|-----------|----------------------|-----------------------|------------------------------|--------|
-| Deployment | Single JAR / container, embedded DB, no external service dependencies | Separate server, database and compute engine deployment | CLI / IDE plugins only — no server-side UI | Requires compiling the codebase and the dedicated CLI; hosted service on GitHub |
-| Chinese support | Native (UI / rules / suggestions / reports) | Officially English-first (community Chinese language packs exist) | Officially English | Officially English |
-| AI semantic review | Multi-vendor LLMs (incl. domestic & local Ollama), per-issue fix suggestions | Not in Community (official AI features in paid / cloud editions) | Not included | Not included (query-language based) |
-| Scoring & gate | Five-grade scoring; weights / thresholds / bands customizable in UI, instant effect | Has scoring and quality profiles; rule severities customizable; rating model follows official definitions | Issue lists only, no scoring | Query-result based, no built-in scoring |
-| Duplicate code | CPD-style token fingerprints, boilerplate excluded | Built-in CPD (cross-project duplication is a paid feature) | CPD ships with PMD; SpotBugs / Checkstyle have no duplication detection | No built-in duplication detection |
-| Dependency CVEs | Built-in advisory store + optional OSV | No built-in advisory store (third-party plugins or paid features) | No built-in advisory store | No built-in advisory store (typically paired with Dependabot) |
-| Architecture rules | Built-in | Related capabilities provided by the paid architecture rule engine | Not included | Requires hand-written QL queries |
-| CI/CD | Webhook trigger + status write-back + MR/PR comments (GitHub / GitLab / Gitee / self-hosted) | Supported via plugins and configuration | DIY scripts | Hosted edition limited to the GitHub ecosystem |
-| Email report delivery | Auto-mails HTML summary + PDF report on scan completion | Alert notifications built in; report emails require custom integration | Not included | Not included |
-| Visual reports | HTML / PDF export (CJK-ready) | Built-in web dashboard; PDF export needs plugins or paid editions | No report UI | No report UI |
-| Offline / air-gapped | Full functionality offline (AI optional) | Supported | Supported | Supported (CLI runs locally) |
-| Domestic databases | DM / Kingbase / openGauss drivers bundled | Official support limited to mainstream databases such as PostgreSQL / MySQL | N/A (no server-side storage) | N/A |
-| Licensing cost | MIT license | Community free, enterprise editions paid | Free and open source | Private-repo use requires paid GitHub Advanced Security |
+|-----------|------------|-----------------------|------------------------------|--------|
+| Deployment | Single JAR / container, embedded DB | Separate server / database / compute engine | CLI / IDE plugins only | Dedicated CLI, hosted on GitHub |
+| Chinese | Native UI / rules / reports | English-first | English | English |
+| AI review | Multi-vendor LLMs + per-issue fix suggestions | Not in Community | Not included | Not included |
+| Scoring & gate | Five-grade scoring; deductions / thresholds customizable in UI, instant effect | Has scoring config; rating model officially defined | Issue lists only | No built-in scoring |
+| Duplicate code | CPD-style fingerprints, boilerplate excluded | Built-in CPD (cross-project paid) | CPD ships with PMD | None |
+| Dependency CVEs | Built-in advisory store + optional OSV enrichment | Needs plugin / paid | None | None |
+| Architecture rules | Built-in | Paid rule engine | Not included | Hand-written QL required |
+| CI/CD | Webhook + status write-back + MR/PR comments | Needs plugins | DIY scripts | GitHub ecosystem only |
+| Report email | Auto HTML summary + PDF attachment | Custom integration required | Not included | Not included |
+| Domestic (Xinchuang) DBs | DM / Kingbase / openGauss etc. drivers bundled | Mainstream databases only | N/A | N/A |
+| Licensing | MIT | Community free, enterprise paid | Free | Private repos require paid GHAS |
 | Language coverage | Java | Multi-language | Mostly Java | Multi-language |
-| Rule ecosystem size | Built-in rules focused on common Java issues | Hundreds of built-in rules | Hundreds of rules (Java-oriented) | Standard query library and public query repository |
 
-> **Note & disclaimer**: the comparison above was compiled from each product's official public documentation and community / free editions as of **September 2026**. It describes feature differences for selection reference only and does not constitute an evaluation, endorsement, or disparagement of any product or vendor. Products evolve quickly — refer to official documentation for current capabilities. Corrections are welcome via Issue / PR and will be verified and fixed promptly.
+> Compiled from each product's official public documentation as of September 2026, for selection reference only; it does not constitute an evaluation or endorsement of any product. Corrections are welcome via Issue / PR.
 
-**Where each fits**: the differences above drive selection — for polyglot repositories and long-term trend governance, SonarQube / CodeQL cover more rules and historical analysis; this project's characteristics are single JAR / container deployment with an embedded database, native Chinese, optional AI enhancement and a Java-only focus, suiting small/medium Java teams, air-gapped intranets, Xinchuang (domestic-tech) projects and teaching demos.
+**Where each fits**: for polyglot repositories and long-term trend governance, SonarQube / CodeQL cover more ground; JArgus — single-JAR deployment, native Chinese, optional AI, Java-only focus — suits small/medium Java teams, air-gapped intranets, Xinchuang projects and teaching demos.
 
 ## 🚀 Deployment
 
@@ -244,29 +113,47 @@ For source builds and Docker, see [Deployment](#-deployment) below.
 
 | Method | Requires |
 |--------|----------|
-| JAR | JDK 17+ (Maven 3.9+ to build) |
+| Release JAR | JDK / JRE 17+ |
+| Build from source | JDK 17+ · Maven 3.9+ |
 | Docker | Docker 20.10+ / Docker Compose v2 |
 
-### Option 1: JAR
+### Option 1: Release JAR (no source needed, fastest)
+
+Download the **runnable Jar** straight from a Release (the very same artifact on GitHub and Gitee, ~86MB, 17 bundled database drivers):
+
+- GitHub Releases: <https://github.com/vfaner/jargus/releases>
+- Gitee Releases: <https://gitee.com/super_rgh/jargus/releases>
 
 ```bash
-# Build
+java -jar jargus-2.0.2.jar
+```
+
+- First run auto-initializes the embedded H2 database (`data/`), scan snapshots & reports (`work/`) and logs (`logs/`) in the working directory — no external database required;
+- Open <http://localhost:8080>, default account `admin / 123456` (change the password after first login);
+- Custom port: `java -jar jargus-2.0.2.jar --server.port=9090`;
+- Override the built-in secrets in production: `--app.jwt-secret=<new-jwt-secret> --app.crypto-key=<new-aes-key>`.
+
+### Option 2: Build from Source
+
+```bash
+git clone https://gitee.com/super_rgh/jargus.git   # or github.com/vfaner/jargus
+cd jargus
 mvn package -DskipTests
 
-# Run (data/ database and work/ snapshots are created in the working directory)
+# Run (data/ database and work/ snapshots & reports are created in the working directory)
 java -jar target/jargus.jar
 ```
 
-Open http://localhost:8080. Default accounts (created on first start — **change the passwords immediately**):
+Development mode: `mvn spring-boot:run` (template caching disabled — just refresh).
+
+Default accounts (created on first start — **change the passwords immediately**):
 
 | Account | Password | Role |
 |---------|----------|------|
 | admin | 123456 | Administrator (full access) |
 | view | 123456 | Read-only |
 
-Development mode: `mvn spring-boot:run` (template caching disabled — just refresh).
-
-### Option 2: Docker (recommended)
+### Option 3: Docker (recommended for production)
 
 **docker compose:**
 
@@ -282,9 +169,9 @@ docker compose logs -f     # logs
 
 ```bash
 # Build the image (multi-stage: Maven build → JRE runtime)
-./scripts/docker-build.sh 2.0.0
+./scripts/docker-build.sh 2.0.2
 # In mainland-China networks, build via registry mirrors:
-./scripts/docker-build-cn.sh 2.0.0
+./scripts/docker-build-cn.sh 2.0.2
 
 # Run with persistent volumes
 docker run -d --name jargus \
@@ -296,7 +183,7 @@ docker run -d --name jargus \
   -e APP_JWT_SECRET="your-own-random-secret-at-least-32-chars" \
   -e APP_CRYPTO_KEY="your-16-char-key" \
   --restart unless-stopped \
-  jargus:2.0.0
+  jargus:2.0.2
 ```
 
 Health check: `curl http://localhost:8080/actuator/health` → `{"status":"UP"}`
@@ -321,12 +208,11 @@ Persistent paths: `/app/data` (database), `/app/work` (snapshots / reports), `/a
 
 ### Quick Start
 
-1. Log in, open **New Scan**, upload a project ZIP or paste code;
-2. When the scan finishes you land on the result page: score ring, five-grade distribution, gate verdict, and every issue (expandable with code context);
-3. The **Quality Gate** page shows scores and gate results for all tasks; admins can click **Customize** to tune per-grade weights and thresholds;
-4. Export **HTML / PDF** reports;
-5. Optional: connect an LLM under **AI Settings** for deep review; configure an SMTP sender and recipients under **Email** and tick "Email notification" on a scan to have reports mailed automatically;
-6. For CI, create a trigger and token on the **CI/CD** page — a single `curl` webhook from your pipeline triggers the scan and writes back statuses and comments; see the [CI/CD Integration Guide](#-cicd-integration-guide) for step-by-step wiring.
+1. Log in, open **New Scan**, upload a project ZIP or paste code (`samples/SampleBadCode.java` works for a quick trial);
+2. When the scan finishes you land on the result page: score ring, five-grade distribution, gate verdict, every issue expandable with code context; export **HTML / PDF** reports in one click;
+3. The **Quality Gate** page shows score trends and gate results; admins can click **Customize** to tune per-grade weights and thresholds;
+4. Optional: connect an LLM under **AI Settings** for deep review; configure an SMTP sender and recipients under **Email** and tick "Email notification" on a scan to have reports mailed automatically;
+5. CI: create a trigger and token on the **CI/CD** page — a single webhook push from your pipeline triggers the scan and writes back statuses and comments; see the detailed guide below.
 
 ## 🔌 CI/CD Integration Guide
 
@@ -395,44 +281,9 @@ curl -X POST "<webhook-url>/upload" \
 
 > Note: Option A requires the Webhook URL to be reachable from the code platform (public mapping or a tunnel for intranet deployments); Option B's ZIP upload only needs the runner to reach this service, so it also works in fully air-gapped networks.
 
-## 📁 Project Layout
+## 🤝 Feedback
 
-```
-jargus/
-├── src/main/java/com/qqmu/jargus/
-│   ├── checker/         # Checker framework + 19 built-in checkers (AST / regex / scan-level)
-│   ├── config/          # Startup initialization, bean config
-│   ├── controller/      # Page controllers + REST API
-│   ├── datasource/      # Dynamic multi-datasource & dialect adapter
-│   ├── dto/ entity/ mapper/   # Data model (MyBatis-Plus)
-│   ├── llm/             # Multi-vendor LLM protocol adapters
-│   ├── security/        # JWT, role aspect, user context
-│   ├── service/         # Scanning, scoring/gate, AI review, reports, mail delivery, CI callbacks…
-│   └── util/            # Utilities
-├── src/main/resources/
-│   ├── db/              # DDL for H2 / MySQL dialects
-│   ├── i18n/            # Chinese & English message bundles
-│   ├── security/        # Built-in CVE advisory store
-│   ├── templates/       # Thymeleaf pages (19)
-│   ├── static/          # CSS / JS / local icons (zero CDN)
-│   └── application.yml
-├── samples/             # Sample bad code (paste it to try the product)
-├── scripts/             # Docker build / run scripts (incl. China-mirror variant)
-├── Dockerfile           # Multi-stage build
-└── docker-compose.yml
-```
-
-## 🤝 Summary & Feedback
-
-This project started from one goal: **give small teams a complete code-quality loop at the lowest possible cost** — single-container delivery, zero external dependencies, offline-capable, Chinese-native, optional AI enhancement, fully customizable scoring gates, end-to-end CI integration, and report delivery straight to the inbox. It keeps evolving: rule sets, the advisory store and report formats will continue to grow.
-
-Feedback, suggestions and issue reports are very welcome:
-
-- Open an Issue / Pull Request
-- **QQ: 817094 / 2912167928**
-- **WeChat: hua47609**
-
-Every piece of feedback makes it better.
+Issues / Pull Requests welcome; QQ: 817094 / 2912167928; WeChat: hua47609.
 
 ## 📄 License
 
