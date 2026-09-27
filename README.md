@@ -125,12 +125,12 @@ JArgus 据此以**一个 JAR / 一个容器**交付「扫描 → 评分 → 门�
 - Gitee Releases：<https://gitee.com/super_rgh/jargus/releases>
 
 ```bash
-java -jar jargus-2.0.2.jar
+java -jar jargus-2.0.3.jar
 ```
 
 - 首次启动自动在当前目录初始化内嵌 H2 数据库（`data/`）、扫描快照与报告（`work/`）、日志（`logs/`），无需外接数据库；
 - 访问 <http://localhost:8080>，默认账号 `admin / 123456`（登录后请尽快修改密码）；
-- 换端口：`java -jar jargus-2.0.2.jar --server.port=9090`；
+- 换端口：`java -jar jargus-2.0.3.jar --server.port=9090`；
 - 登录态为 24 小时 Cookie（`app.jwt-expire-hours` 可调）。JWT 签名密钥**未配置时每次启动随机生成**：重启 / 重新部署后需重新登录，也不存在可被伪造的公开默认密钥；仅当需要跨重启保留登录态（如长期持 Bearer 的脚本）时显式配置 `--app.jwt-secret=<密钥>`；
 - 生产环境建议覆盖 AES 密钥：`--app.crypto-key=<新AES密钥>`（库内密码等敏感字段的静态加密）。
 
@@ -170,9 +170,9 @@ docker compose logs -f     # 跟踪日志
 
 ```bash
 # 构建镜像（多阶段：Maven 打包 → JRE 运行时）
-./scripts/docker-build.sh 2.0.2
+./scripts/docker-build.sh 2.0.3
 # 国内网络环境可用镜像站加速构建：
-./scripts/docker-build-cn.sh 2.0.2
+./scripts/docker-build-cn.sh 2.0.3
 
 # 运行（数据卷持久化）
 docker run -d --name jargus \
@@ -183,7 +183,7 @@ docker run -d --name jargus \
   -v jargus-lib:/app/lib \
   -e APP_CRYPTO_KEY="your-16-char-key" \
   --restart unless-stopped \
-  jargus:2.0.2
+  jargus:2.0.3
 ```
 
 健康检查：`curl http://localhost:8080/actuator/health` → `{"status":"UP"}`

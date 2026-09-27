@@ -125,12 +125,12 @@ Download the **runnable Jar** straight from a Release (the very same artifact on
 - Gitee Releases: <https://gitee.com/super_rgh/jargus/releases>
 
 ```bash
-java -jar jargus-2.0.2.jar
+java -jar jargus-2.0.3.jar
 ```
 
 - First run auto-initializes the embedded H2 database (`data/`), scan snapshots & reports (`work/`) and logs (`logs/`) in the working directory — no external database required;
 - Open <http://localhost:8080>, default account `admin / 123456` (change the password after first login);
-- Custom port: `java -jar jargus-2.0.2.jar --server.port=9090`;
+- Custom port: `java -jar jargus-2.0.3.jar --server.port=9090`;
 - Login state is a 24-hour cookie (tunable via `app.jwt-expire-hours`). The JWT signing secret is **generated randomly per startup when unset**: every restart/redeploy requires signing in again, and there is no public default secret to forge. Set `--app.jwt-secret=<secret>` only when logins must survive restarts (e.g. long-lived Bearer scripts);
 - Override the AES key in production: `--app.crypto-key=<new-aes-key>` (at-rest encryption of passwords and other sensitive fields).
 
@@ -170,9 +170,9 @@ docker compose logs -f     # logs
 
 ```bash
 # Build the image (multi-stage: Maven build → JRE runtime)
-./scripts/docker-build.sh 2.0.2
+./scripts/docker-build.sh 2.0.3
 # In mainland-China networks, build via registry mirrors:
-./scripts/docker-build-cn.sh 2.0.2
+./scripts/docker-build-cn.sh 2.0.3
 
 # Run with persistent volumes
 docker run -d --name jargus \
@@ -183,7 +183,7 @@ docker run -d --name jargus \
   -v jargus-lib:/app/lib \
   -e APP_CRYPTO_KEY="your-16-char-key" \
   --restart unless-stopped \
-  jargus:2.0.2
+  jargus:2.0.3
 ```
 
 Health check: `curl http://localhost:8080/actuator/health` → `{"status":"UP"}`
