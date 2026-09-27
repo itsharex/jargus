@@ -378,6 +378,20 @@ public class ScanTaskService {
         // 回写关联的 CI 扫描记录状态（executeScan 内部已吞异常并置 FAILED）
         ScanTask latest = scanTaskMapper.selectById(taskId);
         String status = latest != null && latest.getStatus() != null ? latest.getStatus() : "FAILED";
+        // 建扫描时勾选「启用 AI 语义评审」：扫描成功后自动触发任务级 AI 深度评审（仅高中危）。
+        // fire-and-forget 不阻塞扫描池；未配置厂商时只记日志跳过；任何异常不影响后续 CI 回写与邮件通知
+        if ("SUCCESS".equals(status) && latest != null && Boolean.TRUE.equals(latest.getEnableAiReview())) {
+            if (aiSuggestionService.isAvailable()) {
+                try {
+                    aiSuggestionService.startDeepReview(taskId, "BLOCKER,CRITICAL,MAJOR");
+                    log.info("扫描完成，已自动触发 AI 深度评审: taskId={}, 范围=BLOCKER/CRITICAL/MAJOR", taskId);
+                } catch (Exception e) {
+                    log.warn("自动触发 AI 深度评审失败: taskId={}, err={}", taskId, e.getMessage());
+                }
+            } else {
+                log.info("AI 语义评审开关已开启，但未配置/启用 AI 厂商，跳过自动深度评审: taskId={}", taskId);
+            }
+        }
         try {
             ciTriggerService.syncRecordByTaskId(taskId, status);
         } catch (Exception e) {
@@ -442,11 +456,15 @@ public class ScanTaskService {
             String sourceRootStr = sourcePath.toAbsolutePath().toString();
             List<ScanIssue> savedIssues = saveIssues(taskId, issues, sourceRootStr);
 
-            // 统计未忽略的问题（按合并后的记录数计）
+            // 统计未忽略的问题（按合并后的记录数计）；AI 命中数同口径统计（合并条含任一 AI 命中即计入）
             int blockerCount = 0, criticalCount = 0, majorCount = 0, minorCount = 0, infoCount = 0;
+            int aiIssueCount = 0;
             for (ScanIssue saved : savedIssues) {
                 if (Boolean.TRUE.equals(saved.getIsIgnored())) {
                     continue;
+                }
+                if (Boolean.TRUE.equals(saved.getIsAiGenerated())) {
+                    aiIssueCount++;
                 }
                 switch (saved.getIssueLevel()) {
                     case "BLOCKER" -> blockerCount++;
@@ -465,6 +483,7 @@ public class ScanTaskService {
             task.setMajorCount(majorCount);
             task.setMinorCount(minorCount);
             task.setInfoCount(infoCount);
+            task.setAiIssueCount(aiIssueCount);
             task.setTotalIssues(blockerCount + criticalCount + majorCount + minorCount + infoCount);
             task.setTotalFiles(countJavaFiles(sourcePath));
             task.setTotalLines(countLines(sourcePath));

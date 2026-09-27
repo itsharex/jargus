@@ -106,6 +106,10 @@ public class CodeParseService {
         if (enableAiReview && aiClientFactory.isAiConfigured()) {
             aiCheckers = checkerRegistry.getEnabledAiCheckers();
             log.info("启用的 AI 检查器: {} 个", aiCheckers.size());
+        } else {
+            // 消除静默闸门：开关开了却没配厂商（或开关没开）时留痕，排查"AI 没效果"先看这行
+            log.info("扫描期 AI 检查跳过: 开关={}, 厂商已配置={}",
+                    enableAiReview, aiClientFactory.isAiConfigured());
         }
 
         // 合并所有检查器（PostScanChecker 扫描级后处理仍用合并全表；AI 检查器不实现该接口，行为不变）

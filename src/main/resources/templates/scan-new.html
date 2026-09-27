@@ -170,6 +170,20 @@
             notifyMs.setOptions(list || []);
         }).catch(function () { /* 拉取失败仅影响下拉，可重试 */ });
 
+        // AI 厂商可用性：未配置/未启用时禁用 AI 开关并给出警示，
+        // 避免"看着勾上了、扫完毫无效果"的静默失效（开关语义=扫描期 AI 检查 + 扫完自动深度评审）
+        var optAi = document.getElementById('opt-ai');
+        UI.api.get('/api/issues/ai/available').then(function (res) {
+            if (res && res.available === false) {
+                optAi.checked = false;
+                optAi.disabled = true;
+                var hint = document.createElement('div');
+                hint.className = 'field-hint text-danger';
+                hint.textContent = UI.t('scan.aiUnavailable');
+                optAi.closest('.field').appendChild(hint);
+            }
+        }).catch(function () { /* 查询失败不阻塞表单，保守起见不动开关 */ });
+
         // 开始扫描
         var btn = document.getElementById('start-btn');
         btn.addEventListener('click', function () {
