@@ -5,11 +5,15 @@
 > An out-of-the-box Java code quality review platform: local static analysis engine + optional AI deep review + SonarQube-style five-grade scoring & quality gates + end-to-end CI/CD wiring + email report delivery.
 > Shipped as a single JAR / single Docker image with an embedded database — zero external dependencies, fully offline capable, with native Chinese UI, rules and reports.
 
+![JArgus · Full-loop Java code review in a single JAR](images/zhutu.png)
+
+> 🎬 **Deployment walkthrough**: [~21-minute full deployment demo on Bilibili](https://www.bilibili.com/video/BV1aMav6iEgd/) (Chinese narration) — from download & startup to the first finished review.
+
 ## 📖 Background
 
-- **SonarQube is heavy**: dedicated server + database + ops effort; the community edition is feature-limited with poor Chinese support;
-- **PMD / SpotBugs / Checkstyle only produce "issue lists"**: no scoring, gates, visual reports or governance;
-- **AI coding assistants work in silos**: models cannot be managed centrally, nor are they integrated with static analysis results;
+- **High entry barrier of enterprise platforms**: full-featured code quality platforms typically require dedicated servers, databases and operational effort, making trials and small-team adoption costly;
+- **Gap between scanning and governance**: a good share of static analysis tools stop at outputting issue lists, with no scoring, gates, visual reports or follow-up governance loop;
+- **AI not integrated with static analysis**: coding assistants each run their own models, which are hard to manage centrally and are not combined with static analysis results;
 - **Extra requirements in Chinese enterprises**: air-gapped intranets, domestic (Xinchuang) databases, domestic LLMs, Chinese reporting materials.
 
 JArgus therefore ships **one JAR / one container** delivering the full loop "scan → score → gate → report → CI blocking → email delivery": embedded H2 out of the box, 19 checkers, optional LLM integration, fully Chinese-native.
