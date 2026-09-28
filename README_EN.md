@@ -1,6 +1,6 @@
 # JArgus · Java Code Review Platform
 
-[中文](README.md) | [English](README_EN.md)
+[中文](README.md) | [English](README_EN.md) | [Website jargus.qqmu.com](https://jargus.qqmu.com/)
 
 > An out-of-the-box Java code quality review platform: local static analysis engine + optional AI deep review + SonarQube-style five-grade scoring & quality gates + end-to-end CI/CD wiring + email report delivery.
 > Shipped as a single JAR / single Docker image with an embedded database — zero external dependencies, fully offline capable, with native Chinese UI, rules and reports.
@@ -69,9 +69,9 @@ All screenshots are taken from real running pages; image assets live in the [`im
     <td width="33%" align="center"><img src="images/jargus_menjin.png" width="100%"><br><sub>Quality gate</sub></td>
   </tr>
   <tr>
-    <td width="33%" align="center"><img src="images/jargus_ai.png" width="100%"><br><sub>AI provider settings</sub></td>
     <td width="33%" align="center"><img src="images/jargus_fajianpeizhi.png" width="100%"><br><sub>SMTP senders</sub></td>
     <td width="33%" align="center"><img src="images/jargus_shoujianren.png" width="100%"><br><sub>Mail recipients</sub></td>
+    <td width="33%" align="center"><img src="images/jargus_mail.png" width="100%"><br><sub>Report email delivered</sub></td>
   </tr>
   <tr>
     <td width="33%" align="center"><img src="images/jargus_cicd.png" width="100%"><br><sub>CI/CD triggers</sub></td>
@@ -84,8 +84,8 @@ All screenshots are taken from real running pages; image assets live in the [`im
     <td width="33%" align="center"><img src="images/jargus_oa_add.png" width="100%"><br><sub>New remote auth</sub></td>
   </tr>
   <tr>
+    <td width="33%" align="center"><img src="images/jargus_ai.png" width="100%"><br><sub>AI provider settings</sub></td>
     <td width="33%" align="center"><img src="images/jargus_xitongxinxi.png" width="100%"><br><sub>System info</sub></td>
-    <td width="33%"></td>
     <td width="33%"></td>
   </tr>
 </table>

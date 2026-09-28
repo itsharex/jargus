@@ -1,6 +1,6 @@
 # 百目 JArgus · Java 代码评审平台
 
-[中文](README.md) | [English](README_EN.md)
+[中文](README.md) | [English](README_EN.md) | [官网 jargus.qqmu.com](https://jargus.qqmu.com/)
 
 > 开箱即用的 Java 代码质量评审平台：本地静态分析引擎 + 可选 AI 深度评审 + SonarQube 式五级评分与质量门禁 + CI/CD 全链路联动 + 扫描报告邮件推送。
 > 单个 JAR / 单个 Docker 镜像交付，内嵌数据库零外部依赖，完全离线可用，界面、规则、报告原生中文。
@@ -69,9 +69,9 @@ JArgus 据此以**一个 JAR / 一个容器**交付「扫描 → 评分 → 门�
     <td width="33%" align="center"><img src="images/jargus_menjin.png" width="100%"><br><sub>质量门禁</sub></td>
   </tr>
   <tr>
-    <td width="33%" align="center"><img src="images/jargus_ai.png" width="100%"><br><sub>AI 厂商配置</sub></td>
     <td width="33%" align="center"><img src="images/jargus_fajianpeizhi.png" width="100%"><br><sub>发件配置</sub></td>
     <td width="33%" align="center"><img src="images/jargus_shoujianren.png" width="100%"><br><sub>邮件收件人</sub></td>
+    <td width="33%" align="center"><img src="images/jargus_mail.png" width="100%"><br><sub>报告邮件送达</sub></td>
   </tr>
   <tr>
     <td width="33%" align="center"><img src="images/jargus_cicd.png" width="100%"><br><sub>CI/CD 触发器</sub></td>
@@ -84,8 +84,8 @@ JArgus 据此以**一个 JAR / 一个容器**交付「扫描 → 评分 → 门�
     <td width="33%" align="center"><img src="images/jargus_oa_add.png" width="100%"><br><sub>新增远端认证</sub></td>
   </tr>
   <tr>
+    <td width="33%" align="center"><img src="images/jargus_ai.png" width="100%"><br><sub>AI 厂商配置</sub></td>
     <td width="33%" align="center"><img src="images/jargus_xitongxinxi.png" width="100%"><br><sub>系统信息</sub></td>
-    <td width="33%"></td>
     <td width="33%"></td>
   </tr>
 </table>
