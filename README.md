@@ -287,7 +287,7 @@ curl -X POST "<Webhook地址>/upload" \
 
 ## 🤝 反馈
 
-欢迎 Issue / Pull Request；QQ：817094 / 2912167928；微信：hua47609。
+欢迎 Issue / Pull Request；QQ：817094 / 2912167928；微信：qqmu66。
 
 ## 📄 开源协议
 

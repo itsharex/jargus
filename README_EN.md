@@ -287,7 +287,7 @@ curl -X POST "<webhook-url>/upload" \
 
 ## 🤝 Feedback
 
-Issues / Pull Requests welcome; QQ: 817094 / 2912167928; WeChat: hua47609.
+Issues / Pull Requests welcome; QQ: 817094 / 2912167928; WeChat: qqmu66.
 
 ## 📄 License
 

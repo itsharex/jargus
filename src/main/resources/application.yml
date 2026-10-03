@@ -70,7 +70,7 @@ app:
   # 作者联系方式（系统信息页展示）
   contact:
     qq: 817094/2912167928
-    wechat: hua47609
+    wechat: qqmu66
   # 版本比对（拉 GitHub releases）；纯离线内网可关闭
   update-check:
     enabled: true
