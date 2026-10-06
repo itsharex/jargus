@@ -54,6 +54,7 @@ import java.util.Map;
 public class PageController {
 
     private final ScanTaskService scanTaskService;
+    private final com.qqmu.jargus.mapper.ScanTaskMapper scanTaskMapper;
     private final QualityGateService qualityGateService;
     private final ProjectEnvService projectEnvService;
     private final CheckerConfigService checkerConfigService;
@@ -108,31 +109,61 @@ public class PageController {
     @GetMapping("/dashboard")
     public String dashboard(Model model) {
         IPage<ScanTask> recent = scanTaskService.listTasks(1, 8, null);
-        IPage<ScanTask> all = scanTaskService.listTasks(1, 200, null);
 
+        // 等级总数走一次 SQL 聚合，不再拉 200 行实体进 Java 循环加总
         long blockers = 0, criticals = 0, majors = 0, minors = 0, infos = 0;
+        try {
+            java.util.Map<String, Object> sums = scanTaskMapper.selectMaps(
+                    new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<ScanTask>()
+                            .select("COALESCE(SUM(blocker_count),0) AS b",
+                                    "COALESCE(SUM(critical_count),0) AS c",
+                                    "COALESCE(SUM(major_count),0) AS m",
+                                    "COALESCE(SUM(minor_count),0) AS mn",
+                                    "COALESCE(SUM(info_count),0) AS i")
+            ).get(0);
+            blockers = ((Number) sums.getOrDefault("b", 0)).longValue();
+            criticals = ((Number) sums.getOrDefault("c", 0)).longValue();
+            majors = ((Number) sums.getOrDefault("m", 0)).longValue();
+            minors = ((Number) sums.getOrDefault("mn", 0)).longValue();
+            infos = ((Number) sums.getOrDefault("i", 0)).longValue();
+        } catch (Exception e) {
+            // 聚合失败不挡仪表盘，退化为 0 展示
+        }
+
+        // 近 14 天趋势按天 GROUP BY，不拉全量任务
         Map<String, Long> trend = new LinkedHashMap<>();
         LocalDate today = LocalDate.now();
         for (int i = 13; i >= 0; i--) {
             trend.put(today.minusDays(i).toString(), 0L);
         }
-        for (ScanTask t : all.getRecords()) {
-            blockers += nz(t.getBlockerCount());
-            criticals += nz(t.getCriticalCount());
-            majors += nz(t.getMajorCount());
-            minors += nz(t.getMinorCount());
-            infos += nz(t.getInfoCount());
-            if (t.getCreatedAt() != null) {
-                String day = t.getCreatedAt().toLocalDate().toString();
-                if (trend.containsKey(day)) {
-                    trend.computeIfPresent(day, (k, v) -> v + 1);
+        try {
+            List<java.util.Map<String, Object>> rows = scanTaskMapper.selectMaps(
+                    new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<ScanTask>()
+                            .select("DATE(created_at) AS day", "COUNT(*) AS cnt")
+                            .ge("created_at", today.minusDays(13).atStartOfDay())
+                            .groupBy("DATE(created_at)")
+            );
+            for (java.util.Map<String, Object> row : rows) {
+                String day = null;
+                long cnt = 0;
+                for (java.util.Map.Entry<String, Object> e : row.entrySet()) {
+                    if (e.getKey() == null) continue;
+                    switch (e.getKey().toLowerCase()) {
+                        case "day" -> day = e.getValue() != null ? String.valueOf(e.getValue()) : null;
+                        case "cnt" -> cnt = e.getValue() instanceof Number n ? n.longValue() : 0L;
+                    }
+                }
+                if (day != null && trend.containsKey(day)) {
+                    trend.put(day, cnt);
                 }
             }
+        } catch (Exception e) {
+            // 趋势失败退化为 0
         }
         long trendMax = trend.values().stream().mapToLong(Long::longValue).max().orElse(1);
 
         model.addAttribute("recent", recent.getRecords());
-        model.addAttribute("taskTotal", all.getTotal());
+        model.addAttribute("taskTotal", recent.getTotal());
         model.addAttribute("blockers", blockers);
         model.addAttribute("criticals", criticals);
         model.addAttribute("majors", majors);

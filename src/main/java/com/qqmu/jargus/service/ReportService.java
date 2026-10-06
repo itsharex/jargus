@@ -90,13 +90,21 @@ public class ReportService {
             throw new RuntimeException("任务不存在");
         }
 
-        QualityGateResult quality = qualityGateService.evaluateTask(taskId);
-        List<ScanIssue> issues = getActiveIssues(taskId);
-
-        // 确保报告目录存在
+        // 缓存短路：磁盘上已有该任务的 PDF 且比任务完成时间新（= 已含 AI 建议/深度评审最新数据），
+        // 直接复用，避免邮件通知等场景现场重新生成（PDF 生成是秒到分钟级）。
+        // AI 阶段结束/深度评审完成后会 purgeReportCache 清掉旧文件，因此「新于 completedAt」的缓存一定是最新版。
         Path reportDir = Paths.get(workDir, "reports");
         Files.createDirectories(reportDir);
         Path pdfPath = reportDir.resolve("scan-report-" + taskId + ".pdf");
+        if (Files.exists(pdfPath) && task.getCompletedAt() != null
+                && Files.getLastModifiedTime(pdfPath).toMillis() >= task.getCompletedAt()
+                        .atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()) {
+            log.debug("任务 {} PDF 缓存命中，直接复用: {}", taskId, pdfPath);
+            return pdfPath.toString();
+        }
+
+        QualityGateResult quality = qualityGateService.evaluateTask(taskId);
+        List<ScanIssue> issues = getActiveIssues(taskId);
 
         // 视觉对齐 HTML 报告：灰色页边 + 白色圆角卡片容器（PageBgEvent 绘制），
         // 内容列比容器每侧再内缩 28pt（近似 HTML .report-body 内边距），横幅铺满容器
@@ -619,7 +627,25 @@ public class ReportService {
         );
     }
 
+    /** 中文字体探测结果缓存：字体路径在运行期不变，避免每次生成 PDF 都重新遍历候选 + 解析 TTC。 */
+    private static volatile BaseFont cachedChineseFont;
+
     private BaseFont getChineseFont() {
+        BaseFont cached = cachedChineseFont;
+        if (cached != null) {
+            return cached;
+        }
+        synchronized (this) {
+            if (cachedChineseFont != null) {
+                return cachedChineseFont;
+            }
+            BaseFont font = doGetChineseFont();
+            cachedChineseFont = font;
+            return font;
+        }
+    }
+
+    private BaseFont doGetChineseFont() {
         try {
             // 注意：OpenPDF 只能嵌入 TrueType 字体，Noto Sans CJK 的 .ttc 是 CFF/OpenType 轮廓会加载失败，
             // 因此 Linux 容器优先使用文泉驿（TrueType）。

@@ -648,21 +648,48 @@ public class ScanTaskService {
      * 门禁评分由计数实时推导（QualityGateService），无需单独维护。
      */
     private void refreshTaskIssueStats(Long taskId) {
-        List<ScanIssue> saved = scanIssueMapper.selectList(
-                new QueryWrapper<ScanIssue>().eq("task_id", taskId).eq("is_ignored", false));
-        int blocker = 0, critical = 0, major = 0, minor = 0, info = 0, ai = 0;
-        for (ScanIssue s : saved) {
-            if (Boolean.TRUE.equals(s.getIsAiGenerated())) {
-                ai++;
+        // 两次 GROUP BY 取代全 CLOB 实体重读：问题上万条时省大量内存与 SQL 往返
+        // 1) 按五级分组计数
+        Map<String, Long> levelCounts = new HashMap<>();
+        try {
+            List<Map<String, Object>> rows = scanIssueMapper.selectMaps(
+                    new QueryWrapper<ScanIssue>()
+                            .select("issue_level AS lv", "COUNT(*) AS cnt")
+                            .eq("task_id", taskId)
+                            .eq("is_ignored", false)
+                            .groupBy("issue_level"));
+            for (Map<String, Object> row : rows) {
+                String lv = null;
+                long c = 0;
+                for (Map.Entry<String, Object> e : row.entrySet()) {
+                    if (e.getKey() == null) continue;
+                    switch (e.getKey().toLowerCase()) {
+                        case "lv" -> lv = e.getValue() != null ? String.valueOf(e.getValue()) : null;
+                        case "cnt" -> c = e.getValue() instanceof Number n ? n.longValue() : 0L;
+                    }
+                }
+                if (lv != null) levelCounts.put(lv, c);
             }
-            switch (s.getIssueLevel()) {
-                case "BLOCKER" -> blocker++;
-                case "CRITICAL" -> critical++;
-                case "MAJOR" -> major++;
-                case "MINOR" -> minor++;
-                default -> info++;
-            }
+        } catch (Exception e) {
+            log.warn("重算任务 {} 等级分布失败: {}", taskId, e.getMessage());
         }
+        // 2) AI 生成问题计数（is_ai_generated=true 单独一次 COUNT，不随五级分组）
+        long ai = 0;
+        try {
+            Long aiCount = scanIssueMapper.selectCount(
+                    new QueryWrapper<ScanIssue>()
+                            .eq("task_id", taskId)
+                            .eq("is_ignored", false)
+                            .eq("is_ai_generated", true));
+            ai = aiCount != null ? aiCount : 0L;
+        } catch (Exception e) {
+            log.warn("重算任务 {} AI 问题计数失败: {}", taskId, e.getMessage());
+        }
+        int blocker = levelCounts.getOrDefault("BLOCKER", 0L).intValue();
+        int critical = levelCounts.getOrDefault("CRITICAL", 0L).intValue();
+        int major = levelCounts.getOrDefault("MAJOR", 0L).intValue();
+        int minor = levelCounts.getOrDefault("MINOR", 0L).intValue();
+        int info = levelCounts.getOrDefault("INFO", 0L).intValue();
         ScanTask upd = new ScanTask();
         upd.setId(taskId);
         upd.setBlockerCount(blocker);
@@ -670,7 +697,7 @@ public class ScanTaskService {
         upd.setMajorCount(major);
         upd.setMinorCount(minor);
         upd.setInfoCount(info);
-        upd.setAiIssueCount(ai);
+        upd.setAiIssueCount((int) ai);
         upd.setTotalIssues(blocker + critical + major + minor + info);
         scanTaskMapper.updateById(upd);
     }
