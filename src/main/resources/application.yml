@@ -74,6 +74,11 @@ app:
   # 版本比对（拉 GitHub releases）；纯离线内网可关闭
   update-check:
     enabled: true
+  # 一键更新（下载最新 release JAR、替换并自动重启）；纯离线内网可关闭
+  update:
+    enabled: true
+    # 附加给重启进程的启动参数（如自定义端口）；默认沿用原启动命令
+    extra-args: ""
   # 工作目录（源码快照、报告等）
   work-dir: ./work
   # 代码扫描并发上限（超过后排队，队列满则拒绝并提示稍后重试）
@@ -137,7 +142,9 @@ info:
 logging:
   level:
     root: INFO
-    com.qqmu.jargus: DEBUG
+    # 默认 INFO（一次万级问题扫描下 DEBUG 会打出数万行 SQL 日志拖慢热路径）；
+    # 排障时用 --logging.level.com.qqmu.jargus=DEBUG 临时打开，或在 application-dev.yml 覆盖。
+    com.qqmu.jargus: INFO
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
   file:

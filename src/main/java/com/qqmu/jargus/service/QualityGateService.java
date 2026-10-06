@@ -322,19 +322,31 @@ public class QualityGateService {
     }
 
     /**
-     * 汇总任务的技术债（分钟）：所有未忽略问题的标准修复时间之和
+     * 汇总任务的技术债（分钟）：所有未忽略问题的标准修复时间之和。
+     * 按 rule_code 一次 GROUP BY 拿到 (规则, 条数)，Java 侧只对几十条分组求加权和，
+     * 不再把上万行实体拉进内存循环。
      */
     private long calculateDebtMinutes(Long taskId) {
         try {
-            List<ScanIssue> issues = scanIssueMapper.selectList(
+            List<Map<String, Object>> rows = scanIssueMapper.selectMaps(
                     new QueryWrapper<ScanIssue>()
-                            .select("rule_code")
+                            .select("rule_code AS code", "COUNT(*) AS cnt")
                             .eq("task_id", taskId)
                             .eq("is_ignored", false)
+                            .groupBy("rule_code")
             );
             long total = 0;
-            for (ScanIssue issue : issues) {
-                total += TechnicalDebtCatalog.minutesFor(issue.getRuleCode());
+            for (Map<String, Object> row : rows) {
+                String code = null;
+                long cnt = 0;
+                for (Map.Entry<String, Object> e : row.entrySet()) {
+                    if (e.getKey() == null) continue;
+                    switch (e.getKey().toLowerCase()) {
+                        case "code" -> code = e.getValue() != null ? String.valueOf(e.getValue()) : null;
+                        case "cnt" -> cnt = e.getValue() instanceof Number n ? n.longValue() : 0L;
+                    }
+                }
+                total += TechnicalDebtCatalog.minutesFor(code) * cnt;
             }
             return total;
         } catch (Exception e) {

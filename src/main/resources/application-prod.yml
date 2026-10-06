@@ -23,6 +23,11 @@ logging:
     root: INFO
     com.qqmu.jargus: INFO
 
+# 生产环境开启 Thymeleaf 模板缓存（base yml 为开发便利关闭了它）
+spring:
+  thymeleaf:
+    cache: true
+
 # 默认 H2 文件库（数据落在 /app/data 持久化卷）
 # 切换外部 MySQL/PG 时，在后台「数据库配置」中配置即可，无需修改本文件
 datasource:

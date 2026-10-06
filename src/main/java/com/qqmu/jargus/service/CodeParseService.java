@@ -76,7 +76,8 @@ public class CodeParseService {
         configuration.setSymbolResolver(symbolSolver);
         configuration.setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_17);
         configuration.setStoreTokens(true);
-        configuration.setLexicalPreservationEnabled(true);
+        // 不开 lexicalPreservation：本项目不做 AST 回写/格式化（无任何 LexicalPreservingPrinter
+        // 调用），开启会让每个 token 记录原始文本、解析显著变慢，并使并发解析必须串行加锁。
 
         this.javaParser = new JavaParser(configuration);
     }

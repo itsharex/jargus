@@ -223,7 +223,7 @@ public class VersionService {
     }
 
     /** 去掉一个前导 v：{@code v1.1.1} → {@code 1.1.1}。 */
-    static String stripV(String tag) {
+    public static String stripV(String tag) {
         if (tag == null) {
             return "";
         }
@@ -235,7 +235,7 @@ public class VersionService {
      * 点分版本号逐段比较（{@code 1.2.10} &gt; {@code 1.2.9}）；
      * 缺段与非数字段按 0 计。
      */
-    static int compareVersions(String a, String b) {
+    public static int compareVersions(String a, String b) {
         String[] sa = stripV(a).split("[^0-9A-Za-z]+");
         String[] sb = stripV(b).split("[^0-9A-Za-z]+");
         int n = Math.max(sa.length, sb.length);

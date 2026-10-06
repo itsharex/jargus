@@ -129,12 +129,14 @@ JArgus 据此以**一个 JAR / 一个容器**交付「扫描 → 评分 → 门�
 - Gitee Releases：<https://gitee.com/super_rgh/jargus/releases>
 
 ```bash
-java -jar jargus-2.0.3.jar
+java -jar jargus.jar
 ```
+
+> 今后 Release 附件统一用固定名 `jargus.jar`（不带版本号），下载下来直接 `java -jar jargus.jar` 就能起，升级时在系统信息页点「一键更新」自动替换并重启。旧版本历史附件仍带版本号。
 
 - 首次启动自动在当前目录初始化内嵌 H2 数据库（`data/`）、扫描快照与报告（`work/`）、日志（`logs/`），无需外接数据库；
 - 访问 <http://localhost:8080>，默认账号 `admin / 123456`（登录后请尽快修改密码）；
-- 换端口：`java -jar jargus-2.0.3.jar --server.port=9090`；
+- 换端口：`java -jar jargus.jar --server.port=9090`；
 - 登录态为 24 小时 Cookie（`app.jwt-expire-hours` 可调）。JWT 签名密钥**未配置时每次启动随机生成**：重启 / 重新部署后需重新登录，也不存在可被伪造的公开默认密钥；仅当需要跨重启保留登录态（如长期持 Bearer 的脚本）时显式配置 `--app.jwt-secret=<密钥>`；
 - 生产环境建议覆盖 AES 密钥：`--app.crypto-key=<新AES密钥>`（库内密码等敏感字段的静态加密）。
 
@@ -287,7 +289,7 @@ curl -X POST "<Webhook地址>/upload" \
 
 ## 🤝 反馈
 
-欢迎 Issue / Pull Request；QQ：817094 / 2912167928；微信：qqmu66。
+欢迎 Issue / Pull Request；QQ：817094 / 2912167928；QQ 群：426669837；微信：qqmu66。
 
 ## 📄 开源协议
 

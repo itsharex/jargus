@@ -129,12 +129,14 @@ Download the **runnable Jar** straight from a Release (the very same artifact on
 - Gitee Releases: <https://gitee.com/super_rgh/jargus/releases>
 
 ```bash
-java -jar jargus-2.0.3.jar
+java -jar jargus.jar
 ```
+
+> Release artifacts now use the fixed name `jargus.jar` (no version suffix): download, run with `java -jar jargus.jar`, and upgrade later in-place via the **Update now** button on the System page (downloads, swaps the JAR and restarts automatically). Older release artifacts still carry the version suffix.
 
 - First run auto-initializes the embedded H2 database (`data/`), scan snapshots & reports (`work/`) and logs (`logs/`) in the working directory — no external database required;
 - Open <http://localhost:8080>, default account `admin / 123456` (change the password after first login);
-- Custom port: `java -jar jargus-2.0.3.jar --server.port=9090`;
+- Custom port: `java -jar jargus.jar --server.port=9090`;
 - Login state is a 24-hour cookie (tunable via `app.jwt-expire-hours`). The JWT signing secret is **generated randomly per startup when unset**: every restart/redeploy requires signing in again, and there is no public default secret to forge. Set `--app.jwt-secret=<secret>` only when logins must survive restarts (e.g. long-lived Bearer scripts);
 - Override the AES key in production: `--app.crypto-key=<new-aes-key>` (at-rest encryption of passwords and other sensitive fields).
 
@@ -287,7 +289,7 @@ curl -X POST "<webhook-url>/upload" \
 
 ## 🤝 Feedback
 
-Issues / Pull Requests welcome; QQ: 817094 / 2912167928; WeChat: qqmu66.
+Issues / Pull Requests welcome; QQ: 817094 / 2912167928; QQ group: 426669837; WeChat: qqmu66.
 
 ## 📄 License
 

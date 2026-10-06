@@ -75,33 +75,41 @@ public class ScanIssueService {
         return scanIssueMapper.selectById(id);
     }
 
-    /** selectCount 拆箱保护：极端方言/空结果集返回 null 时按 0 计 */
-    private static long cnt(Long n) {
-        return n == null ? 0L : n;
-    }
-
     /**
      * 获取任务的问题统计
      */
     public Map<String, Object> getStats(Long taskId) {
-        QueryWrapper<ScanIssue> wrapper = new QueryWrapper<>();
-        wrapper.eq("task_id", taskId);
-
-        long blockerCount = cnt(scanIssueMapper.selectCount(
-                new QueryWrapper<ScanIssue>().eq("task_id", taskId).eq("issue_level", "BLOCKER")
-        ));
-        long criticalCount = cnt(scanIssueMapper.selectCount(
-                new QueryWrapper<ScanIssue>().eq("task_id", taskId).eq("issue_level", "CRITICAL")
-        ));
-        long majorCount = cnt(scanIssueMapper.selectCount(
-                new QueryWrapper<ScanIssue>().eq("task_id", taskId).eq("issue_level", "MAJOR")
-        ));
-        long minorCount = cnt(scanIssueMapper.selectCount(
-                new QueryWrapper<ScanIssue>().eq("task_id", taskId).eq("issue_level", "MINOR")
-        ));
-        long infoCount = cnt(scanIssueMapper.selectCount(
-                new QueryWrapper<ScanIssue>().eq("task_id", taskId).eq("issue_level", "INFO")
-        ));
+        // 一次 GROUP BY 拿到五级计数，替代原来 5 次独立 selectCount（结果页每次加载省 4 次往返）
+        Map<String, Long> byLevel = new HashMap<>();
+        try {
+            List<Map<String, Object>> rows = scanIssueMapper.selectMaps(
+                    new QueryWrapper<ScanIssue>()
+                            .select("issue_level AS level", "COUNT(*) AS cnt")
+                            .eq("task_id", taskId)
+                            .groupBy("issue_level")
+            );
+            for (Map<String, Object> row : rows) {
+                String level = null;
+                long c = 0;
+                for (Map.Entry<String, Object> e : row.entrySet()) {
+                    if (e.getKey() == null) continue;
+                    switch (e.getKey().toLowerCase()) {
+                        case "level" -> level = e.getValue() != null ? String.valueOf(e.getValue()) : null;
+                        case "cnt" -> c = e.getValue() instanceof Number n ? n.longValue() : 0L;
+                    }
+                }
+                if (level != null) {
+                    byLevel.put(level, c);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("统计任务 {} 问题等级分布失败: {}", taskId, e.getMessage());
+        }
+        long blockerCount = byLevel.getOrDefault("BLOCKER", 0L);
+        long criticalCount = byLevel.getOrDefault("CRITICAL", 0L);
+        long majorCount = byLevel.getOrDefault("MAJOR", 0L);
+        long minorCount = byLevel.getOrDefault("MINOR", 0L);
+        long infoCount = byLevel.getOrDefault("INFO", 0L);
         long total = blockerCount + criticalCount + majorCount + minorCount + infoCount;
 
         Map<String, Object> stats = new HashMap<>();
