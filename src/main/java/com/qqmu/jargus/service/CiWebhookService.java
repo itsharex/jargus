@@ -281,7 +281,8 @@ public class CiWebhookService {
     // ==================== 工具方法 ====================
 
     private boolean matchesBranch(String branch, String filter) {
-        if (branch == null) return true;
+        // 无分支上下文的事件（tag push、ping 等）不应触发扫描
+        if (branch == null) return false;
         if (filter == null || filter.isEmpty()) return true;
         String[] patterns = filter.split(",");
         for (String pattern : patterns) {
@@ -310,12 +311,16 @@ public class CiWebhookService {
     }
 
     private boolean globMatch(String pattern, String text) {
-        // 简化 glob: ** 匹配任意路径, * 匹配单段
+        // 简化 glob: ** 匹配任意路径, * 匹配单段。
+        // ** 必须先占位后还原——直接链式替换会被后续 .replace("*", ...) 吃掉占位符里的 *
         String regex = pattern
                 .replace(".", "\\.")
-                .replace("**/", "(.*/)?")
+                .replace("**/", "\u0001")
+                .replace("**", "\u0002")
                 .replace("*", "[^/]*")
-                .replace("?", "[^/]");
+                .replace("?", "[^/]")
+                .replace("\u0001", "(.*/)?")
+                .replace("\u0002", ".*");
         return text.matches(regex);
     }
 

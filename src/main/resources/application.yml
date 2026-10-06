@@ -43,7 +43,6 @@ spring:
 
 # MyBatis-Plus
 mybatis-plus:
-  mapper-locations: classpath:mapper/**/*.xml
   type-aliases-package: com.qqmu.jargus.entity
   configuration:
     map-underscore-to-camel-case: true
@@ -71,6 +70,7 @@ app:
   contact:
     qq: 817094/2912167928
     wechat: qqmu66
+    qq-group: 426669837
   # 版本比对（拉 GitHub releases）；纯离线内网可关闭
   update-check:
     enabled: true
@@ -132,12 +132,6 @@ info:
     name: JArgus
     version: 2.0.3
     description: 百目 · Java 代码评审平台
-
-# Jasypt 加密
-jasypt:
-  encryptor:
-    password: ${app.crypto-key}
-    algorithm: PBEWithMD5AndDES
 
 # 日志
 logging:

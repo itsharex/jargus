@@ -6,6 +6,7 @@ import com.qqmu.jargus.entity.ScanTask;
 import com.qqmu.jargus.mapper.ScanIssueMapper;
 import com.qqmu.jargus.mapper.ScanTaskMapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.lowagie.text.Chunk;
 import com.lowagie.text.Document;
 import com.lowagie.text.DocumentException;
@@ -123,9 +124,11 @@ public class ReportService {
             document.close();
         }
 
-        // 保存到 task
-        task.setReportPath(pdfPath.toAbsolutePath().toString());
-        scanTaskMapper.updateById(task);
+        // 保存到 task：仅写 report_path——updateById 全字段回写会把 AI 阶段
+        // 并发刷新的各级问题计数（refreshTaskIssueStats/recomputeTaskCounts）覆盖成旧值
+        scanTaskMapper.update(null, new UpdateWrapper<ScanTask>()
+                .eq("id", taskId)
+                .set("report_path", pdfPath.toAbsolutePath().toString()));
 
         log.info("PDF 报告生成成功: taskId={}, path={}", taskId, pdfPath);
         return pdfPath.toAbsolutePath().toString();
@@ -430,6 +433,10 @@ public class ReportService {
      * 获取报告文件
      */
     public Path getReportFile(Long taskId, String format) {
+        // format 白名单：该参数直接拼进文件名，不设防可构造相对路径段
+        if (!"pdf".equalsIgnoreCase(format) && !"html".equalsIgnoreCase(format)) {
+            throw new IllegalArgumentException("不支持的报告格式: " + format);
+        }
         Path reportDir = Paths.get(workDir, "reports");
         String fileName = "scan-report-" + taskId + "." + format.toLowerCase();
         return reportDir.resolve(fileName);
@@ -1284,48 +1291,38 @@ public class ReportService {
         };
     }
 
-    private String getLevelLabel(String level) {
-        if (level == null) return "提示";
-        return switch (level.toUpperCase()) {
-            case "BLOCKER" -> "阻断";
-            case "CRITICAL" -> "严重";
-            case "MAJOR" -> "主要";
-            case "MINOR" -> "次要";
-            case "INFO" -> "提示";
-            default -> level;
-        };
-    }
+    /** 五级严重度文案（报告按设计为中文；PDF 与 HTML 共用同一份映射） */
+    private static final Map<String, String> LEVEL_LABELS = Map.of(
+            "BLOCKER", "阻断",
+            "CRITICAL", "严重",
+            "MAJOR", "主要",
+            "MINOR", "次要",
+            "INFO", "提示");
 
     /** 等级配色与 HTML .lv-* / .badge-blocker 等五级样式一致 */
+    private static final Map<String, String> LEVEL_COLORS = Map.of(
+            "BLOCKER", "#b91c1c",
+            "CRITICAL", "#ef4444",
+            "MAJOR", "#f59e0b",
+            "MINOR", "#0ea5e9",
+            "INFO", "#6b7280");
+
+    private String getLevelLabel(String level) {
+        if (level == null) return "提示";
+        return LEVEL_LABELS.getOrDefault(level.toUpperCase(), level);
+    }
+
     private Color getLevelColor(String level) {
         if (level == null) return Color.GRAY;
-        return switch (level.toUpperCase()) {
-            case "BLOCKER" -> new Color(185, 28, 28);
-            case "CRITICAL" -> new Color(239, 68, 68);
-            case "MAJOR" -> new Color(245, 158, 11);
-            case "MINOR" -> new Color(14, 165, 233);
-            case "INFO" -> new Color(107, 114, 128);
-            default -> Color.GRAY;
-        };
+        String hex = LEVEL_COLORS.get(level.toUpperCase());
+        return hex != null ? Color.decode(hex) : Color.GRAY;
     }
 
     private Map<String, String> getLevelLabelMap() {
-        Map<String, String> map = new HashMap<>();
-        map.put("BLOCKER", "阻断");
-        map.put("CRITICAL", "严重");
-        map.put("MAJOR", "主要");
-        map.put("MINOR", "次要");
-        map.put("INFO", "提示");
-        return map;
+        return new HashMap<>(LEVEL_LABELS);
     }
 
     private Map<String, String> getLevelColorMap() {
-        Map<String, String> map = new HashMap<>();
-        map.put("BLOCKER", "#b91c1c");
-        map.put("CRITICAL", "#ef4444");
-        map.put("MAJOR", "#f59e0b");
-        map.put("MINOR", "#0ea5e9");
-        map.put("INFO", "#6b7280");
-        return map;
+        return new HashMap<>(LEVEL_COLORS);
     }
 }

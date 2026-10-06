@@ -55,6 +55,11 @@ import java.util.zip.ZipInputStream;
 @RequiredArgsConstructor
 public class ScanTaskService {
 
+    /** ZIP 炸弹熔断：条目数上限（普通源码工程数千文件已属大型） */
+    private static final int MAX_UNZIP_ENTRIES = 20000;
+    /** ZIP 炸弹熔断：解压后总字节上限（multipart 入口 100MB，高压缩比可放大数十倍） */
+    private static final long MAX_UNZIP_BYTES = 512L * 1024 * 1024;
+
     private final ScanTaskMapper scanTaskMapper;
     private final ScanIssueMapper scanIssueMapper;
     private final CiScanRecordMapper ciScanRecordMapper;
@@ -886,6 +891,7 @@ public class ScanTaskService {
      */
     private int unzip(byte[] zipData, Path destDir) throws IOException {
         int count = 0;
+        long totalBytes = 0;
         Path normDestDir = destDir.toAbsolutePath().normalize();
         try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(zipData))) {
             ZipEntry entry;
@@ -905,8 +911,16 @@ public class ScanTaskService {
                 if (entry.isDirectory()) {
                     Files.createDirectories(entryPath);
                 } else {
+                    // ZIP 炸弹熔断：条目数与解压总量双重上限
+                    // （multipart 入口 100MB，高压缩比可放大数十倍）
+                    if (count >= MAX_UNZIP_ENTRIES) {
+                        throw new IOException("ZIP 条目数超过上限（" + MAX_UNZIP_ENTRIES + "）");
+                    }
                     Files.createDirectories(entryPath.getParent());
-                    Files.copy(zis, entryPath, StandardCopyOption.REPLACE_EXISTING);
+                    totalBytes += Files.copy(zis, entryPath, StandardCopyOption.REPLACE_EXISTING);
+                    if (totalBytes > MAX_UNZIP_BYTES) {
+                        throw new IOException("ZIP 解压总量超过上限（" + (MAX_UNZIP_BYTES / 1024 / 1024) + "MB）");
+                    }
                     count++;
                 }
                 zis.closeEntry();

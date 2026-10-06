@@ -29,6 +29,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
@@ -189,7 +190,8 @@ public class CodeParseService {
         long start = System.currentTimeMillis();
         int total = javaFiles.size();
         AtomicInteger completed = new AtomicInteger();
-        Map<String, Object> globalData = new HashMap<>();
+        // 多个文件任务在 aiReviewExecutor 上并发共享该 Map，必须线程安全
+        Map<String, Object> globalData = new ConcurrentHashMap<>();
         List<CompletableFuture<Void>> futures = new ArrayList<>();
         for (Path javaFile : javaFiles) {
             futures.add(CompletableFuture.runAsync(() -> {

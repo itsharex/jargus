@@ -142,6 +142,12 @@ public class UnitTestRunner {
             if (!finished) {
                 process.destroyForcibly();
                 outputThread.interrupt();
+                // 等输出线程收尾，避免残留线程持有被销毁进程的流句柄
+                try {
+                    outputThread.join(2000);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                }
                 return TestResult.builder()
                         .success(false)
                         .errorMessage("单元测试执行超时（" + timeoutSec + "秒）")
@@ -245,11 +251,18 @@ public class UnitTestRunner {
         int errors = 0;
         int skipped = 0;
 
-        // 匹配 Maven Surefire 输出格式: Tests run: X, Failures: Y, Errors: Z, Skipped: W
+        // 匹配 Maven Surefire 输出格式: Tests run: X, Failures: Y, Errors: Z, Skipped: W。
+        // Surefire 每个测试类都会打印一行，末尾 Results: 段还有一行聚合；
+        // 全量累加会翻倍——存在 Results: 段时只解析其后的聚合行
+        String scope = output;
+        int resultsIdx = output.lastIndexOf("Results:");
+        if (resultsIdx >= 0) {
+            scope = output.substring(resultsIdx);
+        }
         Pattern pattern = Pattern.compile(
                 "Tests run:\\s*(\\d+),\\s*Failures:\\s*(\\d+),\\s*Errors:\\s*(\\d+),\\s*Skipped:\\s*(\\d+)"
         );
-        Matcher matcher = pattern.matcher(output);
+        Matcher matcher = pattern.matcher(scope);
         while (matcher.find()) {
             testsRun += Integer.parseInt(matcher.group(1));
             failures += Integer.parseInt(matcher.group(2));

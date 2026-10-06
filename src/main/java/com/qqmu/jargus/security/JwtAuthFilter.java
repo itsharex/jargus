@@ -139,8 +139,9 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 }
             }
         }
-        // 也支持 query 参数（下载链接等）
-        return request.getParameter("token");
+        // 不支持 query 参数取 token：?token= 会进访问日志、Referer 与浏览器历史，
+        // 下载/预览链接走 httpOnly Cookie（SameSite=Lax 顶层导航同样携带），无需 query 通道
+        return null;
     }
 
     private boolean isPublicEndpoint(String path, String method) {
@@ -167,7 +168,6 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 || path.endsWith(".woff2") || path.endsWith(".ttf") || path.endsWith(".map")) {
             return true;
         }
-        if (path.startsWith("/h2-console")) return true;
         if (path.equals("/actuator/health") || path.startsWith("/actuator/health/")
                 || path.equals("/actuator/info")) {
             return true;

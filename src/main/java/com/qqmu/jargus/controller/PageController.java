@@ -81,6 +81,8 @@ public class PageController {
     private String contactQq;
     @Value("${app.contact.wechat:}")
     private String contactWechat;
+    @Value("${app.contact.qq-group:}")
+    private String contactQqGroup;
 
     /** 非管理员直敲管理员页面地址时，回到仪表盘 */
     private static final String ADMIN_REDIRECT = "redirect:/dashboard";
@@ -357,6 +359,7 @@ public class PageController {
         model.addAttribute("websiteUrl", websiteUrl);
         model.addAttribute("contactQq", contactQq);
         model.addAttribute("contactWechat", contactWechat);
+        model.addAttribute("contactQqGroup", contactQqGroup);
         return "settings";
     }
 

@@ -130,6 +130,10 @@
                 <dt th:text="#{settings.contactWechat}">WeChat</dt>
                 <dd class="mono" th:text="${contactWechat}">wechat</dd>
             </div>
+            <div class="dl-row" th:if="${contactQqGroup != null and contactQqGroup != ''}">
+                <dt th:text="#{settings.contactQqGroup}">QQ Group</dt>
+                <dd class="mono" th:text="${contactQqGroup}">426669837</dd>
+            </div>
         </div>
     </div>
 </div>

@@ -103,6 +103,12 @@ public class CiScanExecutor {
     private Path cloneRepo(CiTriggerConfig config, String repoUrl, String branch,
                            String commitId, Long recordId) {
         try {
+            // SSRF 防护：只允许常规 git 协议。GENERIC webhook 的 repoUrl 由 payload 提供，
+            // 持 token 者也不应能让服务器克隆本地仓库（file:// 或裸路径，JGit 均支持）。
+            // 内网 http(s) 自建 GitLab/Gitee 是合法场景，不按 IP 段拦截。
+            if (repoUrl == null || !repoUrl.matches("(?i)^(https?|git|ssh)://\\S+|^git@\\S+")) {
+                throw new IllegalArgumentException("非法的仓库地址（仅支持 http(s)/git/ssh）: " + repoUrl);
+            }
             Path workDir = Paths.get("./work/ci", String.valueOf(recordId));
             Files.createDirectories(workDir);
 
@@ -139,24 +145,27 @@ public class CiScanExecutor {
      */
     private byte[] zipDirectory(Path sourceDir) throws Exception {
         Path zipPath = Files.createTempFile("ci-scan-", ".zip");
-        try (var zos = new ZipOutputStream(Files.newOutputStream(zipPath))) {
-            Files.walk(sourceDir)
-                    .filter(path -> !Files.isDirectory(path))
-                    .forEach(path -> {
-                        try {
-                            String entryName = sourceDir.relativize(path).toString()
-                                    .replace(File.separatorChar, '/');
-                            var entry = new ZipEntry(entryName);
-                            zos.putNextEntry(entry);
-                            Files.copy(path, zos);
-                            zos.closeEntry();
-                        } catch (Exception e) {
-                            log.warn("ZIP 添加文件失败: {}", path);
-                        }
-                    });
+        try {
+            try (var zos = new ZipOutputStream(Files.newOutputStream(zipPath));
+                 var paths = Files.walk(sourceDir)) {
+                paths.filter(path -> !Files.isDirectory(path))
+                        .forEach(path -> {
+                            try {
+                                String entryName = sourceDir.relativize(path).toString()
+                                        .replace(File.separatorChar, '/');
+                                var entry = new ZipEntry(entryName);
+                                zos.putNextEntry(entry);
+                                Files.copy(path, zos);
+                                zos.closeEntry();
+                            } catch (Exception e) {
+                                log.warn("ZIP 添加文件失败: {}", path);
+                            }
+                        });
+            }
+            return Files.readAllBytes(zipPath);
+        } finally {
+            // 中途异常（磁盘满/IO 中断）也要清掉临时文件
+            Files.deleteIfExists(zipPath);
         }
-        byte[] data = Files.readAllBytes(zipPath);
-        Files.deleteIfExists(zipPath);
-        return data;
     }
 }

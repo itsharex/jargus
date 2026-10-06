@@ -331,17 +331,17 @@ public class ProjectEnvService {
                     // 找 maven.compiler.source / java.version 等
                     Pattern[] patterns = {
                             Pattern.compile("<java\\.version>(.*?)</java\\.version>"),
+                            Pattern.compile("<maven\\.compiler\\.release>(.*?)</maven\\.compiler\\.release>"),
                             Pattern.compile("<maven\\.compiler\\.source>(.*?)</maven\\.compiler\\.source>"),
-                            Pattern.compile("<source>(.*?)</source>")
+                            // 插件 configuration 写法：限定在 maven-compiler-plugin 声明之后匹配，
+                            // 避免把 <resources> 等无关 <source> 标签当 JDK 版本
+                            Pattern.compile("(?s)maven-compiler-plugin.*?<release>(.*?)</release>"),
+                            Pattern.compile("(?s)maven-compiler-plugin.*?<source>(.*?)</source>")
                     };
                     for (Pattern p : patterns) {
                         Matcher m = p.matcher(content);
                         if (m.find()) {
-                            String ver = m.group(1).trim();
-                            if (ver.matches("\\d+")) {
-                                return ver;
-                            }
-                            return ver;
+                            return m.group(1).trim();
                         }
                     }
                 }

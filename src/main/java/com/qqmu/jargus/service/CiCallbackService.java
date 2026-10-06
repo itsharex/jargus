@@ -245,8 +245,10 @@ public class CiCallbackService {
                     postJson(url, Map.of("body", body), gitlabHeaders(token), "GitLab MR 回评");
                 }
                 case "GITEE" -> {
+                    // Gitee 的 /pulls/{n}/comments 是 diff 行内评论端点（需 path/position/commit_id），
+                    // 普通回评走 issues 端点（PR 编号与 issue 编号共用，与 GitHub 一致）
                     String url = apiBase(platform, config.getPlatformUrl())
-                            + "/repos/" + encodePath(ownerRepo) + "/pulls/" + mrPrId + "/comments";
+                            + "/repos/" + encodePath(ownerRepo) + "/issues/" + mrPrId + "/comments";
                     postJson(url, Map.of("access_token", token, "body", body),
                             plainJsonHeaders(), "Gitee PR 回评");
                 }

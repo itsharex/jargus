@@ -75,6 +75,11 @@ public class ScanIssueService {
         return scanIssueMapper.selectById(id);
     }
 
+    /** selectCount 拆箱保护：极端方言/空结果集返回 null 时按 0 计 */
+    private static long cnt(Long n) {
+        return n == null ? 0L : n;
+    }
+
     /**
      * 获取任务的问题统计
      */
@@ -82,21 +87,21 @@ public class ScanIssueService {
         QueryWrapper<ScanIssue> wrapper = new QueryWrapper<>();
         wrapper.eq("task_id", taskId);
 
-        long blockerCount = scanIssueMapper.selectCount(
+        long blockerCount = cnt(scanIssueMapper.selectCount(
                 new QueryWrapper<ScanIssue>().eq("task_id", taskId).eq("issue_level", "BLOCKER")
-        );
-        long criticalCount = scanIssueMapper.selectCount(
+        ));
+        long criticalCount = cnt(scanIssueMapper.selectCount(
                 new QueryWrapper<ScanIssue>().eq("task_id", taskId).eq("issue_level", "CRITICAL")
-        );
-        long majorCount = scanIssueMapper.selectCount(
+        ));
+        long majorCount = cnt(scanIssueMapper.selectCount(
                 new QueryWrapper<ScanIssue>().eq("task_id", taskId).eq("issue_level", "MAJOR")
-        );
-        long minorCount = scanIssueMapper.selectCount(
+        ));
+        long minorCount = cnt(scanIssueMapper.selectCount(
                 new QueryWrapper<ScanIssue>().eq("task_id", taskId).eq("issue_level", "MINOR")
-        );
-        long infoCount = scanIssueMapper.selectCount(
+        ));
+        long infoCount = cnt(scanIssueMapper.selectCount(
                 new QueryWrapper<ScanIssue>().eq("task_id", taskId).eq("issue_level", "INFO")
-        );
+        ));
         long total = blockerCount + criticalCount + majorCount + minorCount + infoCount;
 
         Map<String, Object> stats = new HashMap<>();

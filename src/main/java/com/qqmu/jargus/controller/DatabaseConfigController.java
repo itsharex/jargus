@@ -60,7 +60,13 @@ public class DatabaseConfigController {
      */
     @GetMapping("/active")
     public Result<DatabaseConfig> getActive() {
-        return Result.success(databaseConfigService.getActive());
+        // 与 list/getById 一致脱敏：本端点对 VIEWER 放行，密文密码也不应离开服务端
+        // （叠加默认加密密钥可知时，密文即明文）
+        DatabaseConfig cfg = databaseConfigService.getActive();
+        if (cfg != null) {
+            cfg.setPassword(null);
+        }
+        return Result.success(cfg);
     }
 
     /**

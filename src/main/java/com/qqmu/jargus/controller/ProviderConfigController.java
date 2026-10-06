@@ -43,7 +43,14 @@ public class ProviderConfigController {
 
     @GetMapping("/active")
     public Result<AiProviderConfig> getActive() {
-        return Result.success(providerConfigService.getActive());
+        // service.getActive() 返回解密后的密钥供内部 AI 调用；HTTP 出口必须脱敏
+        // （本端点按方法名启发式对 VIEWER 放行，与 list/getById 同样置空密钥）
+        AiProviderConfig cfg = providerConfigService.getActive();
+        if (cfg != null) {
+            cfg.setApiKey(null);
+            cfg.setSecretKey(null);
+        }
+        return Result.success(cfg);
     }
 
     @PostMapping

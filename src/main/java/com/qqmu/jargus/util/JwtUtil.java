@@ -59,9 +59,9 @@ public class JwtUtil {
     }
 
     /**
-     * 解析 token
+     * 解析 token（仅类内使用；外部经 validateToken/getUserId 访问）
      */
-    public Claims parseToken(String token) {
+    private Claims parseToken(String token) {
         try {
             return Jwts.parser()
                     .verifyWith(secretKey)
@@ -80,22 +80,6 @@ public class JwtUtil {
     public boolean validateToken(String token) {
         Claims claims = parseToken(token);
         return claims != null && claims.getExpiration().after(new Date());
-    }
-
-    /**
-     * 获取用户名
-     */
-    public String getUsername(String token) {
-        Claims claims = parseToken(token);
-        return claims != null ? claims.get("username", String.class) : null;
-    }
-
-    /**
-     * 获取角色
-     */
-    public String getRole(String token) {
-        Claims claims = parseToken(token);
-        return claims != null ? claims.get("role", String.class) : null;
     }
 
     /**

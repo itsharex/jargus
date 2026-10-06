@@ -105,7 +105,8 @@ public class MailRecipientService {
         QueryWrapper<MailRecipient> wrapper = new QueryWrapper<>();
         wrapper.eq("email", email);
         if (excludeId != null) wrapper.ne("id", excludeId);
-        if (mailRecipientMapper.selectCount(wrapper) > 0) {
+        Long dup = mailRecipientMapper.selectCount(wrapper);
+        if (dup != null && dup > 0) {
             throw new RuntimeException("该邮箱已存在");
         }
     }

@@ -10,7 +10,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.security.MessageDigest;
 import java.security.SecureRandom;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.Base64;
 
@@ -92,14 +94,16 @@ public class CiTokenService {
         for (CiToken t : tokens) {
             try {
                 String decrypted = CryptoUtil.decrypt(t.getTokenValue());
-                if (decrypted.equals(tokenValue)) {
-                    // 更新最后使用时间
-                    t.setLastUsedAt(LocalDateTime.now());
-                    ciTokenMapper.updateById(t);
-                    // 检查过期
+                if (decrypted != null && MessageDigest.isEqual(
+                        decrypted.getBytes(StandardCharsets.UTF_8),
+                        tokenValue.getBytes(StandardCharsets.UTF_8))) {
+                    // 过期 token 直接拒绝，不再刷新使用时间
                     if (t.getExpiresAt() != null && t.getExpiresAt().isBefore(LocalDateTime.now())) {
                         return false;
                     }
+                    // 更新最后使用时间
+                    t.setLastUsedAt(LocalDateTime.now());
+                    ciTokenMapper.updateById(t);
                     return true;
                 }
             } catch (Exception ignored) {

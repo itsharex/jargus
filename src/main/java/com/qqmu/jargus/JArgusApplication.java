@@ -5,7 +5,6 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
-import org.springframework.cache.annotation.EnableCaching;
 
 /**
  * 百目 JArgus 启动类
@@ -15,7 +14,6 @@ import org.springframework.cache.annotation.EnableCaching;
 @SpringBootApplication(exclude = {DataSourceAutoConfiguration.class})
 @EnableAsync
 @EnableScheduling
-@EnableCaching
 public class JArgusApplication {
 
     public static void main(String[] args) {
