@@ -73,6 +73,8 @@ public class ScanTaskService {
     private final MailNotifyService mailNotifyService;
     private final AiSuggestionService aiSuggestionService;
     private final ReportService reportService;
+    /** 本地全量落库时把逐条 insert 并入一个事务（万级问题从数万次自动提交降为一次批量提交）。 */
+    private final org.springframework.transaction.PlatformTransactionManager transactionManager;
 
     @Value("${app.work-dir:./work}")
     private String workDir;
@@ -162,6 +164,89 @@ public class ScanTaskService {
 
         scanTaskMapper.insert(task);
         return task;
+    }
+
+    /**
+     * CI/Git 克隆场景：克隆目录本身就是现成源码树，直接拷进任务快照目录，
+     * 跳过「压 zip → 整包读进堆 → 再解压」的往返（大仓库可省数百 MB 堆峰值与三次全量 IO）。
+     * 拷贝完成后调用方负责删原克隆目录。
+     */
+    public ScanTask createFromLocalDirectory(Path existingSource, String taskName, String projectName,
+                                             boolean includeTestCode, boolean enableAiReview,
+                                             boolean skipUnitTest,
+                                             boolean notifyEnabled, String notifyRecipientIds) {
+        Path taskDir = createTaskDirectory();
+        Path sourceDir = taskDir.resolve("src");
+        try {
+            Files.createDirectories(sourceDir);
+            // copyDirectory 已跳过 .git/.svn/.hg 等 VCS 元数据
+            copyDirectory(existingSource, sourceDir);
+        } catch (IOException e) {
+            log.error("拷贝克隆源码到快照目录失败", e);
+            throw new RuntimeException("拷贝克隆源码失败: " + e.getMessage(), e);
+        }
+
+        ScanTask task = new ScanTask();
+        task.setTaskName(taskName != null ? taskName : "CI 代码扫描");
+        task.setProjectName(projectName);
+        task.setSourceType("CI");
+        task.setStatus("PENDING");
+        task.setIncludeTestCode(includeTestCode);
+        task.setEnableAiReview(enableAiReview);
+        task.setSkipUnitTest(skipUnitTest);
+        task.setNotifyEnabled(notifyEnabled);
+        task.setNotifyRecipientIds(notifyEnabled ? notifyRecipientIds : null);
+        task.setSnapshotPath(sourceDir.toAbsolutePath().toString());
+        task.setTotalFiles(0);
+        task.setTotalLines(0);
+        task.setBlockerCount(0);
+        task.setCriticalCount(0);
+        task.setMajorCount(0);
+        task.setMinorCount(0);
+        task.setInfoCount(0);
+        task.setTotalIssues(0);
+        task.setCreatedAt(LocalDateTime.now());
+        task.setUpdatedAt(LocalDateTime.now());
+
+        scanTaskMapper.insert(task);
+        return task;
+    }
+
+    /** 递归拷目录（跳过不存在的源、保留文件属性；跳过 .git 等 VCS 元数据，大仓库可省上百 MB）。 */
+    private void copyDirectory(Path src, Path dst) throws IOException {
+        if (!Files.exists(src)) {
+            return;
+        }
+        try (var walk = Files.walk(src)) {
+            walk.forEach(p -> {
+                try {
+                    // 跳过 .git 目录及其全部内容（relativize 段含 .git 即整个子树）
+                    if (isVcsMetadata(src.relativize(p))) {
+                        return;
+                    }
+                    Path target = dst.resolve(src.relativize(p).toString());
+                    if (Files.isDirectory(p)) {
+                        Files.createDirectories(target);
+                    } else {
+                        Files.createDirectories(target.getParent());
+                        Files.copy(p, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    }
+                } catch (IOException e) {
+                    throw new RuntimeException("拷贝文件失败: " + p, e);
+                }
+            });
+        }
+    }
+
+    /** 相对路径中任一段是 .git/.svn/.hg 即视为 VCS 元数据。 */
+    private boolean isVcsMetadata(Path rel) {
+        for (Path seg : rel) {
+            String s = seg.toString();
+            if (s.equals(".git") || s.equals(".svn") || s.equals(".hg")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -456,9 +541,12 @@ public class ScanTaskService {
                     task.getSpringBootVersion()
             );
 
-            // 保存问题到数据库（同文件同规则的多个命中点合并为一条，自动应用忽略规则）
+            // 保存问题到数据库（同文件同规则的多个命中点合并为一条，自动应用忽略规则）。
+            // 本地全量阶段：把逐条 insert 并入一个事务，避免万级问题时每条自动提交刷盘。
             String sourceRootStr = sourcePath.toAbsolutePath().toString();
-            List<ScanIssue> savedIssues = saveIssues(taskId, issues, sourceRootStr);
+            var txTemplate = new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+            List<ScanIssue> savedIssues = txTemplate.execute(status ->
+                    saveIssues(taskId, issues, sourceRootStr));
 
             // 统计未忽略的问题（按合并后的记录数计）；AI 命中数同口径统计（合并条含任一 AI 命中即计入）
             int blockerCount = 0, criticalCount = 0, majorCount = 0, minorCount = 0, infoCount = 0;

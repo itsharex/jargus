@@ -79,18 +79,23 @@ public class SeverityMigrationService {
         // review_rule.default_level 旧值迁移
         int rulesMigrated = migrateReviewRules();
 
-        // 重算全部任务五级计数（旧库计数列语义已变，不能只动受影响任务）
-        List<ScanTask> tasks = scanTaskMapper.selectList(new QueryWrapper<ScanTask>().select("id"));
-        for (ScanTask task : tasks) {
-            issueMergeService.recomputeTaskCounts(task.getId());
-        }
-
-        // 评分口径全变，报告缓存强制重建
-        int cacheDeleted = deleteAllReportCaches();
-
-        if (issueMigrated > 0 || realigned > 0 || rulesMigrated > 0 || rankFixed > 0) {
+        // 什么都没迁移 = 数据已在五级格式，无需重算计数、无需删报告缓存。
+        // 否则每次启动都对全部任务重算计数 + 删光所有 PDF/HTML 缓存，重启后第一批用户
+        // 现场重新生成报告（PDF 秒到分钟级），纯属白付。
+        boolean anythingChanged = issueMigrated > 0 || realigned > 0 || rankFixed > 0 || rulesMigrated > 0;
+        int cacheDeleted = 0;
+        int tasksCount = 0;
+        if (anythingChanged) {
+            // 重算全部任务五级计数（旧库计数列语义已变，不能只动受影响任务）
+            List<ScanTask> tasks = scanTaskMapper.selectList(new QueryWrapper<ScanTask>().select("id"));
+            tasksCount = tasks.size();
+            for (ScanTask task : tasks) {
+                issueMergeService.recomputeTaskCounts(task.getId());
+            }
+            // 评分口径变了，报告缓存强制重建
+            cacheDeleted = deleteAllReportCaches();
             log.info("五级严重度迁移: 问题改级 {} 条，目录重对齐 {} 条，秩校正 {} 条，规则 {} 条，任务 {} 个，清理报告缓存 {} 份",
-                    issueMigrated, realigned, rankFixed, rulesMigrated, tasks.size(), cacheDeleted);
+                    issueMigrated, realigned, rankFixed, rulesMigrated, tasksCount, cacheDeleted);
         }
     }
 

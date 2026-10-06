@@ -17,7 +17,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -41,6 +43,19 @@ public class ProjectEnvService {
 
     private final JavaParser javaParser;
 
+    /**
+     * 按快照路径缓存分析结果。一个扫描任务对应一个只读快照目录，其内容自落盘后不再变化，
+     * 因此结果可安全复用——结果页每次刷新、/api/scans/{id}/env 与扫描时的预分析共享同一份。
+     * 用 LinkedHashMap 做 access-order LRU，避免历史快照累积占内存。
+     */
+    private final Map<Path, ProjectInfo> cache =
+            Collections.synchronizedMap(new LinkedHashMap<>(32, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<Path, ProjectInfo> eldest) {
+                    return size() > 64;
+                }
+            });
+
     public ProjectEnvService() {
         ParserConfiguration config = new ParserConfiguration();
         config.setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_17);
@@ -48,12 +63,23 @@ public class ProjectEnvService {
     }
 
     /**
-     * 分析项目环境
+     * 分析项目环境（结果按快照路径缓存，重复访问免重复全量 walk + 解析）。
      *
      * @param sourceRoot 源码根目录
      * @return 项目环境信息
      */
     public ProjectInfo analyzeProject(Path sourceRoot) {
+        Path key = sourceRoot.toAbsolutePath().normalize();
+        ProjectInfo cached = cache.get(key);
+        if (cached != null) {
+            return cached;
+        }
+        ProjectInfo info = doAnalyzeProject(sourceRoot);
+        cache.put(key, info);
+        return info;
+    }
+
+    private ProjectInfo doAnalyzeProject(Path sourceRoot) {
         ProjectInfo.ProjectInfoBuilder builder = ProjectInfo.builder();
 
         // 检测构建工具

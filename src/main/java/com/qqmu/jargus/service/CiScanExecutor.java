@@ -9,14 +9,11 @@ import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Comparator;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
 
 /**
  * CI 异步扫描执行器
@@ -52,9 +49,9 @@ public class CiScanExecutor {
                 return;
             }
 
-            byte[] zipData = zipDirectory(sourceDir);
-            var task = scanTaskService.createFromZip(
-                    zipData,
+            // 克隆目录本身就是现成源码树，直接拷进任务快照，跳过 zip 往返（省数百 MB 堆峰值）
+            var task = scanTaskService.createFromLocalDirectory(
+                    sourceDir,
                     "CI-" + recordId,
                     null,
                     Boolean.TRUE.equals(config.getIncludeTestCode()),
@@ -137,35 +134,6 @@ public class CiScanExecutor {
         } catch (GitAPIException | IOException e) {
             log.error("克隆仓库失败: url={}, err={}", repoUrl, e.getMessage());
             return null;
-        }
-    }
-
-    /**
-     * 将目录打包为 ZIP 字节数组
-     */
-    private byte[] zipDirectory(Path sourceDir) throws Exception {
-        Path zipPath = Files.createTempFile("ci-scan-", ".zip");
-        try {
-            try (var zos = new ZipOutputStream(Files.newOutputStream(zipPath));
-                 var paths = Files.walk(sourceDir)) {
-                paths.filter(path -> !Files.isDirectory(path))
-                        .forEach(path -> {
-                            try {
-                                String entryName = sourceDir.relativize(path).toString()
-                                        .replace(File.separatorChar, '/');
-                                var entry = new ZipEntry(entryName);
-                                zos.putNextEntry(entry);
-                                Files.copy(path, zos);
-                                zos.closeEntry();
-                            } catch (Exception e) {
-                                log.warn("ZIP 添加文件失败: {}", path);
-                            }
-                        });
-            }
-            return Files.readAllBytes(zipPath);
-        } finally {
-            // 中途异常（磁盘满/IO 中断）也要清掉临时文件
-            Files.deleteIfExists(zipPath);
         }
     }
 }
