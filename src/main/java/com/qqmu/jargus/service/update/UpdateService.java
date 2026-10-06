@@ -214,8 +214,10 @@ public class UpdateService {
             pb.redirectErrorStream(true);
             pb.start();
 
-            // 触发 JVM 优雅退出（Spring 关闭钩子释放 DB 连接 / H2 锁）
-            Runtime.getRuntime().halt(0);
+            // 触发 JVM 优雅退出：System.exit 会跑 Spring 关闭钩子（释放 DB 连接 / H2 文件锁），
+            // 脱离脚本已在后台 sh 里等待本进程 PID 退出后再替换 jar。
+            // 不能用 halt(0) —— 它跳过 shutdown hook，H2 文件锁残留会让下次启动走 crash recovery。
+            System.exit(0);
         } catch (Exception e) {
             log.warn("一键更新失败: {}", e.toString());
             if (tmpJar != null) {

@@ -393,8 +393,4 @@ public class PageController {
         model.addAttribute("contactQqGroup", contactQqGroup);
         return "settings";
     }
-
-    private static long nz(Integer n) {
-        return n == null ? 0L : n.longValue();
-    }
 }

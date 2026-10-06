@@ -272,16 +272,4 @@ public class ControlPlaneRepository {
         Object v = row.get(column);
         return v instanceof Number n ? n.longValue() : null;
     }
-
-    /** 行内取布尔值（数值 1/0 与 Boolean 均兼容） */
-    public static boolean bool(Map<String, Object> row, String column) {
-        Object v = row.get(column);
-        if (v instanceof Boolean b) {
-            return b;
-        }
-        if (v instanceof Number n) {
-            return n.intValue() != 0;
-        }
-        return false;
-    }
 }

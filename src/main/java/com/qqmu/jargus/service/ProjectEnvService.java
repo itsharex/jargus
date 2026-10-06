@@ -74,9 +74,18 @@ public class ProjectEnvService {
         if (cached != null) {
             return cached;
         }
-        ProjectInfo info = doAnalyzeProject(sourceRoot);
-        cache.put(key, info);
-        return info;
+        // 整段 analyze+put 加同一把锁：两个线程同时 miss 同一快照路径时，第二个线程等第一个跑完
+        // 再走 cache.get 命中，避免双倍 JavaParser 全量分析的 CPU/IO。
+        // synchronizedMap 的锁就是它自身，这里显式 synchronized 与 map 内部一致。
+        synchronized (cache) {
+            ProjectInfo doubleCheck = cache.get(key);
+            if (doubleCheck != null) {
+                return doubleCheck;
+            }
+            ProjectInfo info = doAnalyzeProject(sourceRoot);
+            cache.put(key, info);
+            return info;
+        }
     }
 
     private ProjectInfo doAnalyzeProject(Path sourceRoot) {

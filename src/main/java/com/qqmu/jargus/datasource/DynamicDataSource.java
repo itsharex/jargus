@@ -39,6 +39,8 @@ public class DynamicDataSource extends AbstractRoutingDataSource {
     /**
      * 替换默认（活库）数据源：路由 key 为空的所有流量立即落到新库。
      * 与 addDataSource 共用 synchronized，避免并发切换时 afterPropertiesSet 交叉。
+     * 注意：本方法不负责关闭旧池 —— 调用方（DatabaseSwitchService）在确认切换成功后
+     * 再显式 close 旧池，这样切换失败回滚时旧池仍可用。
      */
     public synchronized void replaceDefault(DataSource dataSource) {
         this.resolvedDataSources.put("default", dataSource);

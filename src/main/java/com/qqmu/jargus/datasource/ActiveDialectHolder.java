@@ -23,9 +23,4 @@ public final class ActiveDialectHolder {
     public static void set(SqlDialectAdapter dialect) {
         CURRENT.set(dialect != null ? dialect : SqlDialectAdapter.H2);
     }
-
-    /** 当前活库的方言家族 */
-    public static SqlDialectAdapter.Family family() {
-        return CURRENT.get().getFamily();
-    }
 }

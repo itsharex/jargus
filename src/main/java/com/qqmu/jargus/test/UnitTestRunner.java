@@ -196,7 +196,8 @@ public class UnitTestRunner {
 
             Process process = pb.start();
 
-            StringBuilder output = new StringBuilder();
+            // StringBuffer 同步：超时分支主线程 output.toString() 时输出线程可能还在 append
+            StringBuffer output = new StringBuffer();
             Thread outputThread = new Thread(() -> {
                 try (BufferedReader reader = new BufferedReader(
                         new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
@@ -212,10 +213,18 @@ public class UnitTestRunner {
             boolean finished = process.waitFor(timeoutSec, TimeUnit.SECONDS);
             if (!finished) {
                 process.destroyForcibly();
+                outputThread.interrupt();
+                // 与 Maven 分支对齐：等输出线程收尾，避免残留线程持有被销毁进程的流句柄
+                try {
+                    outputThread.join(2000);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                }
                 return TestResult.builder()
                         .success(false)
-                        .errorMessage("单元测试执行超时")
+                        .errorMessage("单元测试执行超时（" + timeoutSec + "秒）")
                         .durationMs(System.currentTimeMillis() - startTime)
+                        .output(output.toString())
                         .build();
             }
 

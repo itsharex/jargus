@@ -1,12 +1,15 @@
 package com.qqmu.jargus.service;
 
 import com.qqmu.jargus.entity.AiProviderConfig;
+import com.qqmu.jargus.llm.AiClientFactory;
 import com.qqmu.jargus.mapper.AiProviderConfigMapper;
 import com.qqmu.jargus.util.CryptoUtil;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.BeanFactory;
+import org.springframework.beans.factory.BeanFactoryAware;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,9 +21,30 @@ import java.util.List;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class ProviderConfigService {
+public class ProviderConfigService implements BeanFactoryAware {
 
     private final AiProviderConfigMapper providerConfigMapper;
+
+    /**
+     * 延迟获取 AiClientFactory：直接字段注入会形成循环依赖
+     * （AiClientFactory → ProviderConfigService.getActive()），用 BeanFactory 打破。
+     * 配置发生变更（create/update/delete/activate）时调用 evictAll 失效已建客户端，
+     * 下次 getActiveClient 会基于最新配置重建 WebClient 连接池。
+     */
+    private BeanFactory beanFactory;
+
+    @Override
+    public void setBeanFactory(BeanFactory beanFactory) {
+        this.beanFactory = beanFactory;
+    }
+
+    private void evictAiClientCache() {
+        try {
+            beanFactory.getBean(AiClientFactory.class).evictAll();
+        } catch (Exception ignored) {
+            // 启动早期或测试环境下 AiClientFactory 尚未就绪，evict 失败无害（下次重建前本来就没缓存）
+        }
+    }
 
     /**
      * 获取所有厂商配置
@@ -99,6 +123,7 @@ public class ProviderConfigService {
 
         config.setApiKey(null);
         config.setSecretKey(null);
+        evictAiClientCache();
         return config;
     }
 
@@ -137,6 +162,7 @@ public class ProviderConfigService {
         AiProviderConfig updated = providerConfigMapper.selectById(id);
         updated.setApiKey(null);
         updated.setSecretKey(null);
+        evictAiClientCache();
         return updated;
     }
 
@@ -193,6 +219,7 @@ public class ProviderConfigService {
         }
         providerConfigMapper.deleteById(id);
         log.info("删除 AI 厂商配置: id={}", id);
+        evictAiClientCache();
         return true;
     }
 
@@ -219,6 +246,7 @@ public class ProviderConfigService {
         providerConfigMapper.updateById(config);
 
         log.info("激活 AI 厂商: id={}, name={}", id, config.getProviderName());
+        evictAiClientCache();
         return true;
     }
 

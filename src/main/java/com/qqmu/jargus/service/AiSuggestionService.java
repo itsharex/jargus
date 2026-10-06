@@ -300,6 +300,9 @@ public class AiSuggestionService {
         // 仅当本 job 仍是该任务的当前 job 时才触发：重跑会替换 jobs 条目，
         // 旧 job 被 stopJob 提前收尾时不能吞掉新 job 注册的回调
         Runnable hook = jobs.get(taskId) == progress ? completionHooks.remove(taskId) : null;
+        // 跑完即从内存态移除进度记录：重启后 getProgress 会回库查已增强条数，不依赖这个 map 驻留。
+        // 不移除会让每个跑过深度评审的 taskId 永久驻留 Progress 对象，长跑后无界增长。
+        jobs.remove(taskId, progress);
         if (hook != null) {
             try {
                 hook.run();

@@ -36,6 +36,7 @@ import org.thymeleaf.context.Context;
 import java.awt.Color;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -130,6 +131,11 @@ public class ReportService {
             writeFooter(document, task, fonts);
 
             document.close();
+        } catch (Exception e) {
+            // 生成异常时 document.close() 没跑，fos 已关但磁盘上留了截断 PDF；
+            // 不删的话下次调用会命中上方的 mtime >= completedAt 缓存判定，把坏文件当有效报告返回。
+            try { Files.deleteIfExists(pdfPath); } catch (IOException ignored) { }
+            throw e;
         }
 
         // 保存到 task：仅写 report_path——updateById 全字段回写会把 AI 阶段

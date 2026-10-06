@@ -240,6 +240,18 @@ public class DatabaseSwitchService {
             result.put("message", "已切换至 " + targetName + "，重启后将自动恢复该数据库");
             result.put("activeDbName", targetName);
             log.info("数据库切换成功: id={}, name={}, 方言={}", targetId, targetName, dialect);
+
+            // ⑭ 切换已确认成功，优雅关闭旧 Hikari 池释放物理连接。
+            // 放在成功路径之后：失败回滚时 oldDefault 仍可用。
+            if (oldDefault != null && oldDefault != newDataSource
+                    && oldDefault instanceof com.zaxxer.hikari.HikariDataSource oldHikari) {
+                try {
+                    log.info("关闭旧默认数据源 Hikari 池，释放物理连接");
+                    oldHikari.close();
+                } catch (Exception closeErr) {
+                    log.warn("关闭旧 Hikari 池失败（连接可能泄漏）: {}", closeErr.getMessage());
+                }
+            }
         } catch (Exception e) {
             log.error("替换运行时路由失败，回滚到原活库: {}", e.getMessage(), e);
             try {
