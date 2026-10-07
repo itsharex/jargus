@@ -1,6 +1,7 @@
 package com.qqmu.jargus.service;
 
 import com.qqmu.jargus.checker.CheckContext;
+import com.qqmu.jargus.util.FileUtils;
 import com.qqmu.jargus.checker.CheckIssue;
 import com.qqmu.jargus.checker.CheckerType;
 import com.qqmu.jargus.checker.IssueLevel;
@@ -279,7 +280,7 @@ public class AiReviewService {
                             .description(description)
                             .suggestion(suggestion)
                             .filePath(context.getCurrentFilePath())
-                            .fileName(extractFileName(context.getCurrentFilePath()))
+                            .fileName(FileUtils.extractFileName(context.getCurrentFilePath()))
                             .lineStart(line)
                             .lineEnd(line)
                             .aiGenerated(true)
@@ -449,9 +450,4 @@ public class AiReviewService {
         };
     }
 
-    private String extractFileName(String path) {
-        if (path == null) return "";
-        int idx = path.lastIndexOf('/');
-        return idx >= 0 ? path.substring(idx + 1) : path;
-    }
 }

@@ -39,6 +39,19 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class DatabaseSwitchService {
 
+    /**
+     * 控制面池（启动 H2 的专用池）。setter 注入：@RequiredArgsConstructor 不会把 @Qualifier
+     * 复制到构造参数，而初始活库为 H2 时路由默认池与本池是同一个实例，切换时绝不能关闭它。
+     */
+    private DataSource controlPlaneDataSource;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setControlPlaneDataSource(
+            @org.springframework.beans.factory.annotation.Qualifier("controlPlaneDataSource")
+            DataSource controlPlaneDataSource) {
+        this.controlPlaneDataSource = controlPlaneDataSource;
+    }
+
     private final DynamicDataSource dynamicDataSource;
     private final DataSourceFactory dataSourceFactory;
     private final SchemaInitService schemaInitService;
@@ -243,7 +256,10 @@ public class DatabaseSwitchService {
 
             // ⑭ 切换已确认成功，优雅关闭旧 Hikari 池释放物理连接。
             // 放在成功路径之后：失败回滚时 oldDefault 仍可用。
+            // 必须排除控制面池：初始活库为 H2 时它与路由默认池是同一实例，关掉后控制面
+            // 全部失效（写穿镜像/再次切换都得重启才恢复）。
             if (oldDefault != null && oldDefault != newDataSource
+                    && oldDefault != controlPlaneDataSource
                     && oldDefault instanceof com.zaxxer.hikari.HikariDataSource oldHikari) {
                 try {
                     log.info("关闭旧默认数据源 Hikari 池，释放物理连接");

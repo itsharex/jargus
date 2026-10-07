@@ -39,6 +39,23 @@ public class ProviderConfigService implements BeanFactoryAware {
     }
 
     private void evictAiClientCache() {
+        // 事务提交后再失效：若在提交前清缓存，并发请求会读到未提交的旧配置并重建进缓存，
+        // 提交后缓存里反而是旧 client（baseUrl/key/model 都是旧的）。
+        if (org.springframework.transaction.support.TransactionSynchronizationManager
+                .isSynchronizationActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager
+                    .registerSynchronization(new org.springframework.transaction.support.TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            doEvictAiClientCache();
+                        }
+                    });
+        } else {
+            doEvictAiClientCache();
+        }
+    }
+
+    private void doEvictAiClientCache() {
         try {
             beanFactory.getBean(AiClientFactory.class).evictAll();
         } catch (Exception ignored) {

@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.qqmu.jargus.entity.MailSender;
 import com.qqmu.jargus.mapper.MailSenderMapper;
 import com.qqmu.jargus.util.CryptoUtil;
+import com.qqmu.jargus.util.MaskUtils;
 import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -216,17 +217,7 @@ public class MailSenderConfigService {
 
     /** 密码替换为掩码（前4 + **** + 后4） */
     private void maskPassword(MailSender sender) {
-        sender.setPassword(maskSecret(sender.getPassword()));
+        sender.setPassword(MaskUtils.secret(sender.getPassword()));
     }
 
-    private String maskSecret(String encrypted) {
-        if (encrypted == null || encrypted.isEmpty()) return null;
-        try {
-            String plain = CryptoUtil.decrypt(encrypted);
-            if (plain.length() <= 8) return "********";
-            return plain.substring(0, 4) + "****" + plain.substring(plain.length() - 4);
-        } catch (Exception e) {
-            return "********";
-        }
-    }
 }

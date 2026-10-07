@@ -3,6 +3,7 @@ package com.qqmu.jargus.service;
 import com.qqmu.jargus.entity.RemoteAuthConfig;
 import com.qqmu.jargus.mapper.RemoteAuthConfigMapper;
 import com.qqmu.jargus.util.CryptoUtil;
+import com.qqmu.jargus.util.MaskUtils;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -40,7 +41,7 @@ public class RemoteAuthConfigService {
         // 脱敏密钥
         list.forEach(c -> {
             if (c.getClientSecret() != null) {
-                c.setClientSecret(maskSecret(c.getClientSecret()));
+                c.setClientSecret(MaskUtils.secret(c.getClientSecret()));
             }
         });
         return list;
@@ -57,7 +58,7 @@ public class RemoteAuthConfigService {
     public RemoteAuthConfig getById(Long id) {
         RemoteAuthConfig config = configMapper.selectById(id);
         if (config != null && config.getClientSecret() != null) {
-            config.setClientSecret(maskSecret(config.getClientSecret()));
+            config.setClientSecret(MaskUtils.secret(config.getClientSecret()));
         }
         return config;
     }
@@ -320,14 +321,4 @@ public class RemoteAuthConfigService {
         return current;
     }
 
-    private String maskSecret(String encrypted) {
-        // 返回 前4 + **** + 后4
-        try {
-            String plain = CryptoUtil.decrypt(encrypted);
-            if (plain.length() <= 8) return "********";
-            return plain.substring(0, 4) + "****" + plain.substring(plain.length() - 4);
-        } catch (Exception e) {
-            return "********";
-        }
-    }
 }

@@ -50,7 +50,12 @@ public class DataSourceFactory {
         String cacheKey = prefix + "|" + passwordFingerprint(password);
         DataSource cached = dataSourceCache.get(cacheKey);
         if (cached != null) {
-            return cached;
+            if (!(cached instanceof HikariDataSource cachedHikari) || !cachedHikari.isClosed()) {
+                return cached;
+            }
+            // 池已被关闭：数据库切换成功后旧默认池会被优雅关闭（H2→A→H2→A 场景），
+            // 缓存条目却留着；不剔除的话下面直接返回死池，getConnection 抛 closed。
+            dataSourceCache.remove(cacheKey, cached);
         }
         evictByPrefix(prefix, cacheKey);
 

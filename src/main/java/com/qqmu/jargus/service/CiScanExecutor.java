@@ -13,7 +13,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Comparator;
 
 /**
  * CI 异步扫描执行器
@@ -72,25 +71,8 @@ public class CiScanExecutor {
         } finally {
             // 扫描基于 createFromZip 落盘的快照进行，克隆目录用完即删，避免磁盘泄漏
             if (sourceDir != null) {
-                deleteRecursively(sourceDir);
+                com.qqmu.jargus.util.FileUtils.deleteRecursively(sourceDir);
             }
-        }
-    }
-
-    /**
-     * 递归删除目录（CI 克隆临时目录清理）
-     */
-    private void deleteRecursively(Path dir) {
-        try (var walk = Files.walk(dir)) {
-            walk.sorted(Comparator.reverseOrder()).forEach(p -> {
-                try {
-                    Files.deleteIfExists(p);
-                } catch (Exception e) {
-                    log.warn("删除 CI 临时文件失败: {}", p);
-                }
-            });
-        } catch (Exception e) {
-            log.warn("清理 CI 克隆目录失败: {}", dir, e);
         }
     }
 

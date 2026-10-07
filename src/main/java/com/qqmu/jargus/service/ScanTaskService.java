@@ -15,6 +15,7 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.qqmu.jargus.env.ProjectInfo;
 import com.qqmu.jargus.test.UnitTestRunner;
+import com.qqmu.jargus.util.FileUtils;
 import com.qqmu.jargus.util.IssuePoints;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,7 +35,6 @@ import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -270,7 +270,7 @@ public class ScanTaskService {
             int fileCount = unzip(zipData, sourceDir);
             log.info("重新上传解压完成: taskId={}, 共 {} 个文件", taskId, fileCount);
         } catch (IOException e) {
-            deleteRecursively(taskDir);
+            FileUtils.deleteRecursively(taskDir);
             throw new RuntimeException("解压文件失败: " + e.getMessage(), e);
         }
 
@@ -351,7 +351,7 @@ public class ScanTaskService {
         aiSuggestionService.stopJob(taskId);
         // 旧问题与报告磁盘缓存必须清掉，否则与新扫描结果混在一起 / 下载到过期报告
         scanIssueMapper.delete(new QueryWrapper<ScanIssue>().eq("task_id", taskId));
-        deleteReportCache(taskId);
+        reportService.purgeReportCache(taskId);
 
         // updateById 会跳过 null 字段，重置类字段（error_message/started_at/completed_at 等）用 UpdateWrapper 显式置空
         UpdateWrapper<ScanTask> uw = new UpdateWrapper<ScanTask>()
@@ -399,7 +399,7 @@ public class ScanTaskService {
             throw new RuntimeException("任务正在排队或扫描中，请等待完成后再删除");
         }
         scanIssueMapper.delete(new QueryWrapper<ScanIssue>().eq("task_id", taskId));
-        deleteReportCache(taskId);
+        reportService.purgeReportCache(taskId);
         deleteOldSnapshot(task.getSnapshotPath());
         ciScanRecordMapper.delete(new QueryWrapper<CiScanRecord>().eq("task_id", taskId));
         scanTaskMapper.deleteById(taskId);
@@ -423,36 +423,7 @@ public class ScanTaskService {
             log.warn("旧快照路径不在 snapshots 目录下，跳过删除: {}", snapshotPath);
             return;
         }
-        deleteRecursively(old);
-    }
-
-    /** 删除该任务的报告磁盘缓存（重新扫描后旧报告不得再被命中） */
-    private void deleteReportCache(Long taskId) {
-        for (String ext : new String[]{"pdf", "html"}) {
-            try {
-                Files.deleteIfExists(Paths.get(workDir, "reports", "scan-report-" + taskId + "." + ext));
-            } catch (IOException e) {
-                log.warn("删除报告缓存失败: taskId={}, ext={}, err={}", taskId, ext, e.getMessage());
-            }
-        }
-    }
-
-    /** 递归删除目录（快照替换用，失败仅告警不阻断主流程） */
-    private void deleteRecursively(Path dir) {
-        if (dir == null || !Files.exists(dir)) {
-            return;
-        }
-        try (Stream<Path> walk = Files.walk(dir)) {
-            walk.sorted(Comparator.reverseOrder()).forEach(p -> {
-                try {
-                    Files.deleteIfExists(p);
-                } catch (IOException ignored) {
-                    // 单个文件删不掉不影响整体
-                }
-            });
-        } catch (IOException e) {
-            log.warn("删除目录失败: {}, err={}", dir, e.getMessage());
-        }
+        FileUtils.deleteRecursively(old);
     }
 
     /**
@@ -811,7 +782,7 @@ public class ScanTaskService {
         ScanIssue scanIssue = new ScanIssue();
         scanIssue.setTaskId(taskId);
         scanIssue.setFilePath(rep.getFilePath());
-        scanIssue.setFileName(extractFileName(rep.getFilePath()));
+        scanIssue.setFileName(FileUtils.extractFileName(rep.getFilePath()));
         scanIssue.setLineStart(points.get(0)[0]);
         scanIssue.setLineEnd(points.get(points.size() - 1)[1]);
         scanIssue.setColumnStart(rep.getColumnStart());
@@ -1062,12 +1033,4 @@ public class ScanTaskService {
         return total;
     }
 
-    private String extractFileName(String filePath) {
-        if (filePath == null) return "";
-        int lastSlash = filePath.lastIndexOf('/');
-        if (lastSlash >= 0) {
-            return filePath.substring(lastSlash + 1);
-        }
-        return filePath;
-    }
 }

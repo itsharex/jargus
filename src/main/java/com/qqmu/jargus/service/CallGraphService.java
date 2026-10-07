@@ -7,6 +7,7 @@ import com.qqmu.jargus.callgraph.MethodInfo;
 import com.qqmu.jargus.checker.CheckIssue;
 import com.qqmu.jargus.checker.CheckerType;
 import com.qqmu.jargus.checker.IssueLevel;
+import com.qqmu.jargus.util.FileUtils;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.JavaParser;
 import com.github.javaparser.ParseResult;
@@ -23,9 +24,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -38,6 +37,14 @@ import java.util.stream.Stream;
 @Slf4j
 @Service
 public class CallGraphService {
+
+    private final CodeParseService codeParseService;
+
+    // @Lazy：存在传递依赖环 CallGraphService→CodeParseService→CheckerRegistry→
+    // UnusedMethodChecker→CallGraphService，注入懒解析代理在首次调用时才取真实 bean，打破启动环。
+    public CallGraphService(@org.springframework.context.annotation.Lazy CodeParseService codeParseService) {
+        this.codeParseService = codeParseService;
+    }
 
     /**
      * 分析源码目录，找出未被调用的方法
@@ -54,20 +61,25 @@ public class CallGraphService {
         Path classDir = tryCompile(sourceRoot);
         boolean hasClasses = classDir != null;
 
-        if (hasClasses) {
-            // 使用 ASM 分析（更准确）
-            log.info("使用 ASM 字节码分析调用图");
-            AsmCallGraphBuilder asmBuilder = new AsmCallGraphBuilder(callGraph);
-            try {
-                asmBuilder.analyzeDirectory(classDir);
-            } catch (Exception e) {
-                log.warn("ASM 分析失败，回退到 AST 分析: {}", e.getMessage());
+        try {
+            if (hasClasses) {
+                // 使用 ASM 分析（更准确）
+                log.info("使用 ASM 字节码分析调用图");
+                AsmCallGraphBuilder asmBuilder = new AsmCallGraphBuilder(callGraph);
+                try {
+                    asmBuilder.analyzeDirectory(classDir);
+                } catch (Exception e) {
+                    log.warn("ASM 分析失败，回退到 AST 分析: {}", e.getMessage());
+                    buildAstGraph(sourceRoot, includeTest, callGraph);
+                }
+            } else {
+                // 使用 AST 分析
+                log.info("使用 AST 分析调用图");
                 buildAstGraph(sourceRoot, includeTest, callGraph);
             }
-        } else {
-            // 使用 AST 分析
-            log.info("使用 AST 分析调用图");
-            buildAstGraph(sourceRoot, includeTest, callGraph);
+        } finally {
+            // 编译产物在临时目录，ASM 分析完即删；原来成功路径漏删，每跑一次漏一个目录
+            FileUtils.deleteRecursively(classDir);
         }
 
         callGraph.printStats();
@@ -96,7 +108,7 @@ public class CallGraphService {
                     .description("方法 '" + method.getMethodName() + "' 在代码中未发现调用点，可能是死代码。" +
                             "如果该方法是公共 API 或通过反射/依赖注入调用，可忽略此警告。")
                     .filePath(file)
-                    .fileName(extractFileName(file))
+                    .fileName(FileUtils.extractFileName(file))
                     .lineStart(method.getLineStart())
                     .lineEnd(method.getLineEnd())
                     .build();
@@ -113,7 +125,7 @@ public class CallGraphService {
     private void buildAstGraph(Path sourceRoot, boolean includeTest, CallGraph callGraph) {
         AstCallGraphBuilder astBuilder = new AstCallGraphBuilder(callGraph);
 
-        List<Path> javaFiles = findJavaFiles(sourceRoot, includeTest);
+        List<Path> javaFiles = codeParseService.findJavaFiles(sourceRoot, includeTest);
         JavaParser parser = createParser();
 
         for (Path javaFile : javaFiles) {
@@ -149,7 +161,7 @@ public class CallGraphService {
             Path outputDir = Files.createTempDirectory("jargus-classes-");
 
             // 收集所有 Java 文件
-            List<Path> javaFiles = findJavaFiles(sourceRoot, true);
+            List<Path> javaFiles = codeParseService.findJavaFiles(sourceRoot, true);
             if (javaFiles.isEmpty()) {
                 return null;
             }
@@ -184,7 +196,7 @@ public class CallGraphService {
                 if (hasClassFiles(outputDir)) {
                     return outputDir;
                 }
-                deleteDirectory(outputDir);
+                FileUtils.deleteRecursively(outputDir);
                 return null;
             }
         } catch (Exception e) {
@@ -203,44 +215,6 @@ public class CallGraphService {
         }
     }
 
-    private void deleteDirectory(Path dir) {
-        try {
-            if (Files.exists(dir)) {
-                Files.walk(dir)
-                        .sorted((a, b) -> -a.compareTo(b))
-                        .forEach(p -> {
-                            try { Files.deleteIfExists(p); } catch (IOException ignored) {}
-                        });
-            }
-        } catch (IOException ignored) {
-        }
-    }
-
-    /**
-     * 查找 Java 文件
-     */
-    private List<Path> findJavaFiles(Path root, boolean includeTest) {
-        if (!Files.exists(root)) return Collections.emptyList();
-        try (Stream<Path> stream = Files.walk(root)) {
-            return stream
-                    .filter(Files::isRegularFile)
-                    .filter(p -> p.toString().endsWith(".java"))
-                    .filter(CodeParseService::isNotMacJunk)
-                    .filter(p -> includeTest || !isTestFile(root, p))
-                    .collect(Collectors.toList());
-        } catch (IOException e) {
-            return Collections.emptyList();
-        }
-    }
-
-    private boolean isTestFile(Path root, Path file) {
-        String relative = root.relativize(file).toString().replace(File.separatorChar, '/');
-        return relative.contains("/test/")
-                || relative.startsWith("test/")
-                || relative.endsWith("Test.java")
-                || relative.endsWith("Tests.java");
-    }
-
     /**
      * 判断是否是外部类（JDK 或第三方库）
      */
@@ -253,14 +227,6 @@ public class CallGraphService {
                 || className.startsWith("org.springframework.")
                 || className.startsWith("org.junit.")
                 || className.startsWith("<"); // 作用域解析失败的
-    }
-
-    private String extractFileName(String path) {
-        int idx = path.lastIndexOf('/');
-        if (idx >= 0) {
-            return path.substring(idx + 1);
-        }
-        return path;
     }
 
     private JavaParser createParser() {

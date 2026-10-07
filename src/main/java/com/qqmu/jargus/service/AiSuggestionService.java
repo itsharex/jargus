@@ -183,19 +183,23 @@ public class AiSuggestionService {
                     ? "所有问题均已生成 AI 增强建议"
                     : "所选严重度下没有待增强的问题");
         }
+        if (pending.isEmpty()) {
+            // 无待增强问题时不占 jobs 坑位：占了也没有协调线程来移除，会永久驻留，
+            // getProgress 永远返回这个 done=0 的对象而不回库查（前端会一直显示增强 0 条）。
+            return progress;
+        }
+
         // 原子占坑：与上方快速检查配合，杜绝并发双击各自拉起一个协调线程
         Progress prev = jobs.putIfAbsent(taskId, progress);
         if (prev != null && (prev.isRunning() || !jobs.replace(taskId, prev, progress))) {
             throw new RuntimeException("该任务正在进行 AI 深度评审，请等待完成");
         }
 
-        if (!pending.isEmpty()) {
-            // 协调线程独立运行（不占扫描池槽位），单条增强提交 aiReviewExecutor 并发执行
-            List<ScanIssue> batch = new ArrayList<>(pending.subList(0, progress.getTotal()));
-            Thread coordinator = new Thread(() -> runDeepReview(taskId, batch), "ai-deep-review-" + taskId);
-            coordinator.setDaemon(true);
-            coordinator.start();
-        }
+        // 协调线程独立运行（不占扫描池槽位），单条增强提交 aiReviewExecutor 并发执行
+        List<ScanIssue> batch = new ArrayList<>(pending.subList(0, progress.getTotal()));
+        Thread coordinator = new Thread(() -> runDeepReview(taskId, batch), "ai-deep-review-" + taskId);
+        coordinator.setDaemon(true);
+        coordinator.start();
         return progress;
     }
 
